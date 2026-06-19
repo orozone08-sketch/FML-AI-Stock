@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block page_title %}Payments{% endblock %}
+{% block page_subtitle %}Record customer receipts, supplier payments, allocations, and advances.{% endblock %}
+{% block content %}
+  <section class="grid two">
+    <div class="panel">
+      <h2>Customer Receipt</h2>
+      <form method="post" action="{{ url_for('payments.customer_receipt') }}" class="form-stack">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label>Company <select name="company_id" required>{% for company in companies %}<option value="{{ company.id }}">{{ company.code }} - {{ company.name }}</option>{% endfor %}</select></label>
+        <label>Customer <select name="customer_id" required>{% for customer in customers %}<option value="{{ customer.id }}">{{ customer.code }} - {{ customer.name }}</option>{% endfor %}</select></label>
+        <label>Invoice
+          <select name="receivable_id">
+            <option value="">Treat as advance</option>
+            {% for rec in receivables %}
+              {% if rec.customer %}
+                <option value="{{ rec.id }}">{{ rec.company.code }} · {{ rec.customer.name }} · {{ rec.document_number }} · {{ fmt_money(rec.balance_amount) }}</option>
+              {% endif %}
+            {% endfor %}
+          </select>
+        </label>
+        <label>Receipt date <input name="payment_date" type="date" required></label>
+        <label>Mode <select name="mode">{% for mode in payment_modes %}<option value="{{ mode.code }}">{{ mode.name }}</option>{% endfor %}</select></label>
+        <label>Reference <input name="reference_number"></label>
+        <label>Amount <input name="amount" type="number" step="0.01" min="0" required></label>
+        <label>Remarks <textarea name="remarks"></textarea></label>
+        <button class="primary-button" type="submit">Save Receipt</button>
+      </form>
+    </div>
+    <div class="panel">
+      <h2>Supplier Payment</h2>
+      <form method="post" action="{{ url_for('payments.supplier_payment') }}" class="form-stack">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label>Company <select name="company_id" required>{% for company in companies %}<option value="{{ company.id }}">{{ company.code }} - {{ company.name }}</option>{% endfor %}</select></label>
+        <label>Supplier <select name="supplier_id" required>{% for supplier in suppliers %}<option value="{{ supplier.id }}">{{ supplier.code }} - {{ supplier.name }}</option>{% endfor %}</select></label>
+        <label>Bill
+          <select name="payable_id">
+            <option value="">Treat as advance</option>
+            {% for pay in payables %}
+              {% if pay.supplier %}
+                <option value="{{ pay.id }}">{{ pay.company.code }} · {{ pay.supplier.name }} · {{ pay.document_number }} · {{ fmt_money(pay.balance_amount) }}</option>
+              {% endif %}
+            {% endfor %}
+          </select>
+        </label>
+        <label>Payment date <input name="payment_date" type="date" required></label>
+        <label>Mode <select name="mode">{% for mode in payment_modes %}<option value="{{ mode.code }}">{{ mode.name }}</option>{% endfor %}</select></label>
+        <label>Reference <input name="reference_number"></label>
+        <label>Amount <input name="amount" type="number" step="0.01" min="0" required></label>
+        <label>Remarks <textarea name="remarks"></textarea></label>
+        <button class="primary-button" type="submit">Save Payment</button>
+      </form>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-title"><h2>Recent Payments</h2><a href="{{ url_for('reports.show', name='payment-history') }}">Report</a></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Date</th><th>Company</th><th>Type</th><th>Party</th><th>Mode</th><th>Amount</th><th>Allocated</th><th>Advance</th><th>Reference</th></tr></thead>
+      <tbody>
+        {% for row in recent_payments %}
+          <tr><td>{{ row.payment_date }}</td><td>{{ row.company.code }}</td><td>{{ row.payment_type }}</td><td>{{ row.customer.name if row.customer else row.supplier.name if row.supplier else '' }}</td><td>{{ row.mode }}</td><td>{{ fmt_money(row.total_amount) }}</td><td>{{ fmt_money(row.allocated_amount) }}</td><td>{{ fmt_money(row.unallocated_amount) }}</td><td>{{ row.reference_number or '' }}</td></tr>
+        {% else %}
+          <tr><td colspan="9" class="empty">No payments recorded.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table></div>
+  </section>
+{% endblock %}

@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block page_title %}Dashboard{% endblock %}
+{% block page_subtitle %}Stock, outstanding, alerts, and inter-company control at a glance.{% endblock %}
+{% block content %}
+  <section class="hero-panel">
+    <div>
+      <h2>FAstockFlow</h2>
+      <p>Real-time stock, FIFO, payments and inter-company control</p>
+    </div>
+    <a class="secondary-button" href="{{ url_for('dashboard.index') }}">Refresh</a>
+  </section>
+
+  <section class="metric-grid">
+    {% for card in stock_cards %}
+      <article class="metric-card">
+        <span>{{ card.book.company.code }} · {{ card.book.book_type }}</span>
+        <h3>{{ card.book.name }}</h3>
+        <strong>{{ fmt_qty(card.quantity) }}</strong>
+        <small>{{ fmt_money(card.value) }} FIFO value</small>
+      </article>
+    {% endfor %}
+    <article class="metric-card danger">
+      <span>Customer</span>
+      <h3>Receivable balance</h3>
+      <strong>{{ fmt_money(receivable_total) }}</strong>
+      <small>{{ upcoming_count }} due or upcoming</small>
+    </article>
+    <article class="metric-card amber">
+      <span>Supplier</span>
+      <h3>Payable balance</h3>
+      <strong>{{ fmt_money(payable_total) }}</strong>
+      <small>Supplier and inter-company dues</small>
+    </article>
+    <article class="metric-card">
+      <span>Inter-company</span>
+      <h3>Open balance</h3>
+      <strong>{{ fmt_money(inter_company_balance) }}</strong>
+      <small>FIFO-valued stock usage</small>
+    </article>
+    <article class="metric-card danger">
+      <span>Stock alerts</span>
+      <h3>Low / out items</h3>
+      <strong>{{ low_stock_count }}</strong>
+      <small>Evaluated by book and item</small>
+    </article>
+  </section>
+
+  <section class="grid two">
+    <div class="panel">
+      <div class="panel-title">
+        <h2>Month Sales</h2>
+        <a href="{{ url_for('reports.show', name='sales-by-type') }}">View report</a>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Company</th><th>Type</th><th>Total</th><th>Profit</th></tr></thead>
+          <tbody>
+            {% for company, book_type, total, profit in sales_summary %}
+              <tr><td>{{ company }}</td><td>{{ book_type }}</td><td>{{ fmt_money(total) }}</td><td>{{ fmt_money(profit) }}</td></tr>
+            {% else %}
+              <tr><td colspan="4" class="empty">No sales recorded this month.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">
+        <h2>Stock Alerts</h2>
+        <a href="{{ url_for('reports.show', name='stock-alerts') }}">View report</a>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Book</th><th>Item</th><th>Qty</th></tr></thead>
+          <tbody>
+            {% for row in low_stock %}
+              <tr><td>{{ row.book.name }}</td><td>{{ row.item.name }}</td><td>{{ fmt_qty(row.quantity) }}</td></tr>
+            {% else %}
+              <tr><td colspan="3" class="empty">No stock alerts.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="grid two">
+    <div class="panel">
+      <div class="panel-title">
+        <h2>Overdue Receivables</h2>
+        <a href="{{ url_for('payments.outstanding') }}">Outstanding</a>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Company</th><th>Customer</th><th>Document</th><th>Balance</th></tr></thead>
+          <tbody>
+            {% for row in overdue_receivables %}
+              <tr><td>{{ row.company.code }}</td><td>{{ row.customer.name if row.customer else row.counterparty_company.name }}</td><td>{{ row.document_number }}</td><td>{{ fmt_money(row.balance_amount) }}</td></tr>
+            {% else %}
+              <tr><td colspan="4" class="empty">No overdue receivables.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">
+        <h2>Overdue Payables</h2>
+        <a href="{{ url_for('payments.outstanding') }}">Outstanding</a>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Company</th><th>Supplier</th><th>Document</th><th>Balance</th></tr></thead>
+          <tbody>
+            {% for row in overdue_payables %}
+              <tr><td>{{ row.company.code }}</td><td>{{ row.supplier.name if row.supplier else row.counterparty_company.name }}</td><td>{{ row.document_number }}</td><td>{{ fmt_money(row.balance_amount) }}</td></tr>
+            {% else %}
+              <tr><td colspan="4" class="empty">No overdue payables.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+{% endblock %}

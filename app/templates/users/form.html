@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block page_title %}{{ 'Edit' if user.id else 'Add' }} User{% endblock %}
+{% block page_subtitle %}Passwords are hashed; deactivation preserves historical attribution.{% endblock %}
+{% block content %}
+  <section class="panel">
+    <form method="post" class="form-grid">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label>Name <input name="name" value="{{ user.name or '' }}" required></label>
+      <label>Email/login <input name="email" type="email" value="{{ user.email or '' }}" required></label>
+      <label>Role
+        <select name="role">{% for role in roles %}<option value="{{ role }}" {% if user.role == role %}selected{% endif %}>{{ role }}</option>{% endfor %}</select>
+      </label>
+      <label>Temporary/new password <input name="password" type="password" {% if not user.id %}required{% endif %}></label>
+      <label class="check"><input name="active" type="checkbox" {% if user.active is not sameas false %}checked{% endif %}> Active</label>
+      <label class="check"><input name="force_password_change" type="checkbox" {% if user.force_password_change %}checked{% endif %}> Require password change</label>
+
+      <details class="full-span permission-box">
+        <summary>Granular permission overrides</summary>
+        <p class="muted-copy">Leave blank to inherit the selected role. Use overrides only for exceptions.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Module</th><th>View</th><th>Create</th><th>Edit</th><th>Approve</th><th>Export</th><th>Deactivate</th></tr></thead>
+            <tbody>
+              {% for module in modules %}
+                <tr>
+                  <td>{{ module }}</td>
+                  {% for action in ['view','create','edit','approve','export','deactivate'] %}
+                    {% set selected = override_map.get(module, {}).get(action, '') %}
+                    <td>
+                      <select name="perm__{{ module }}__{{ action }}">
+                        <option value="" {% if selected == '' %}selected{% endif %}>Inherit</option>
+                        <option value="allow" {% if selected == 'allow' %}selected{% endif %}>Allow</option>
+                        <option value="deny" {% if selected == 'deny' %}selected{% endif %}>Deny</option>
+                      </select>
+                    </td>
+                  {% endfor %}
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
+
+      <div class="form-actions full-span">
+        <a class="secondary-button" href="{{ url_for('users.index') }}">Cancel</a>
+        <button class="primary-button" type="submit">Save User</button>
+      </div>
+    </form>
+  </section>
+{% endblock %}

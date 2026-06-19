@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}FAstockFlow{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+  </head>
+  <body>
+    {% if current_user.is_authenticated %}
+      <div class="app-shell">
+        <aside class="sidebar">
+          <a class="brand" href="{{ url_for('dashboard.index') }}">
+            <span class="brand-mark">FA</span>
+            <span>
+              <strong>FAstockFlow</strong>
+              <small>Stock & Ledger System</small>
+            </span>
+          </a>
+          <nav class="nav">
+            {% set nav = [
+              ('dashboard.index','dashboard','Dashboard'),
+              ('masters.list_records','items','Items', {'kind':'items'}),
+              ('masters.list_records','customers','Customers', {'kind':'customers'}),
+              ('masters.list_records','suppliers','Suppliers', {'kind':'suppliers'}),
+              ('transactions.purchase','purchase','Purchase'),
+              ('transactions.sale','sale','Sale'),
+              ('transactions.transfer','transfer','Transfer'),
+              ('transactions.opening','opening','Opening'),
+              ('payments.index','payments','Payments'),
+              ('payments.outstanding','outstanding','Outstanding'),
+              ('reports.show','due_alerts','Due Alerts', {'name':'due-alerts'}),
+              ('reports.show','stock','Stock', {'name':'current-stock'}),
+              ('reports.show','inter_company','Inter Co', {'name':'inter-company'}),
+              ('reports.index','reports','Reports'),
+              ('users.index','users','Users')
+            ] %}
+            {% for item in nav %}
+              {% set endpoint = item[0] %}
+              {% set module = item[1] %}
+              {% set label = item[2] %}
+              {% set params = item[3] if item|length > 3 else {} %}
+              {% if can(current_user, module, 'view') %}
+                <a href="{{ url_for(endpoint, **params) }}" class="{% if is_active_nav(endpoint, params) %}active{% endif %}">{{ label }}</a>
+              {% endif %}
+            {% endfor %}
+          </nav>
+          <div class="sidebar-footer">
+            <small>FirstTech Machine LLP</small>
+            <small>Aditya International</small>
+            <form action="{{ url_for('auth.logout') }}" method="post">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="ghost-button full" type="submit">Logout</button>
+            </form>
+          </div>
+        </aside>
+        <main class="main">
+          <header class="topbar">
+            <div>
+              <h1>{% block page_title %}FAstockFlow{% endblock %}</h1>
+              <p>{% block page_subtitle %}Real-time stock, FIFO, payments and inter-company control{% endblock %}</p>
+            </div>
+            <div class="user-chip">{{ current_user.name }} · {{ current_user.role }}</div>
+          </header>
+          {% include "macros/flashes.html" %}
+          {% block content %}{% endblock %}
+        </main>
+      </div>
+    {% else %}
+      {% include "macros/flashes.html" %}
+      {% block public_content %}{% endblock %}
+    {% endif %}
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+  </body>
+</html>

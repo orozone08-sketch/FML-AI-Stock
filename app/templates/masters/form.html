@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block page_title %}{{ 'Edit' if record.id else 'Add' }} {{ config.title[:-1] }}{% endblock %}
+{% block page_subtitle %}{{ config.description }}{% endblock %}
+{% block content %}
+  <section class="panel narrow">
+    <form method="post" class="form-grid">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      {% if kind == 'stock-books' %}
+        <label>Company
+          <select name="company_id" required>
+            {% for company in companies %}
+              <option value="{{ company.id }}" {% if record.company_id == company.id %}selected{% endif %}>{{ company.code }} - {{ company.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      {% endif %}
+      <label>Code
+        <input name="code" value="{{ record.code or '' }}" required>
+      </label>
+      <label>Name
+        <input name="name" value="{{ record.name or '' }}" required>
+      </label>
+
+      {% if kind == 'items' %}
+        <label>Unit <input name="unit" value="{{ record.unit or 'pcs' }}" required></label>
+        <label>HSN <input name="hsn" value="{{ record.hsn or '' }}"></label>
+        <label>GST % <input name="gst_percent" type="number" step="0.01" value="{{ record.gst_percent or '0' }}"></label>
+        <label>Minimum stock <input name="minimum_stock" type="number" step="0.001" value="{{ record.minimum_stock or '0' }}"></label>
+        <label class="full-span">Notes <textarea name="notes">{{ record.notes or '' }}</textarea></label>
+      {% elif kind == 'customers' %}
+        <label>Customer type
+          <select name="customer_type">
+            <option value="CASH" {% if record.customer_type == 'CASH' %}selected{% endif %}>CASH</option>
+            <option value="CASH_AND_BILL" {% if record.customer_type != 'CASH' %}selected{% endif %}>CASH_AND_BILL</option>
+          </select>
+        </label>
+        <label>GST number <input name="gst_number" value="{{ record.gst_number or '' }}"></label>
+        <label>Mobile <input name="mobile" value="{{ record.mobile or '' }}"></label>
+        <label>Email <input name="email" type="email" value="{{ record.email or '' }}"></label>
+        <label>Default credit days <input name="default_credit_days" type="number" value="{{ record.default_credit_days if record.default_credit_days is not none else 30 }}"></label>
+        <label class="full-span">Address <textarea name="address">{{ record.address or '' }}</textarea></label>
+        <label class="full-span">Notes <textarea name="notes">{{ record.notes or '' }}</textarea></label>
+      {% elif kind == 'suppliers' %}
+        <label>GST number <input name="gst_number" value="{{ record.gst_number or '' }}"></label>
+        <label>Mobile <input name="mobile" value="{{ record.mobile or '' }}"></label>
+        <label>Email <input name="email" type="email" value="{{ record.email or '' }}"></label>
+        <label>Default credit days <input name="default_credit_days" type="number" value="{{ record.default_credit_days if record.default_credit_days is not none else 30 }}"></label>
+        <label class="full-span">Address <textarea name="address">{{ record.address or '' }}</textarea></label>
+      {% elif kind == 'companies' %}
+        <label>GST number <input name="gst_number" value="{{ record.gst_number or '' }}"></label>
+        <label class="check"><input name="allow_gst_purchase" type="checkbox" {% if record.allow_gst_purchase or not record.id %}checked{% endif %}> GST purchase</label>
+        <label class="check"><input name="allow_cash_purchase" type="checkbox" {% if record.allow_cash_purchase %}checked{% endif %}> Cash purchase</label>
+        <label class="check"><input name="allow_gst_sale" type="checkbox" {% if record.allow_gst_sale or not record.id %}checked{% endif %}> GST sale</label>
+        <label class="check"><input name="allow_cash_sale" type="checkbox" {% if record.allow_cash_sale %}checked{% endif %}> Cash sale</label>
+      {% elif kind == 'stock-books' %}
+        <label>Book type
+          <select name="book_type">
+            <option value="GST" {% if record.book_type != 'CASH' %}selected{% endif %}>GST</option>
+            <option value="CASH" {% if record.book_type == 'CASH' %}selected{% endif %}>CASH</option>
+          </select>
+        </label>
+      {% endif %}
+
+      <label class="check full-span"><input name="active" type="checkbox" {% if record.active is not sameas false %}checked{% endif %}> Active</label>
+      <div class="form-actions full-span">
+        <a class="secondary-button" href="{{ url_for('masters.list_records', kind=kind) }}">Cancel</a>
+        <button class="primary-button" type="submit">Save</button>
+      </div>
+    </form>
+  </section>
+{% endblock %}

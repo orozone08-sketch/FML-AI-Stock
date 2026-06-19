@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block page_title %}{{ title }}{% endblock %}
+{% block page_subtitle %}Use exports for print-friendly PDF, spreadsheet, or CSV output.{% endblock %}
+{% block content %}
+  <section class="panel">
+    <div class="toolbar">
+      <a class="secondary-button" href="{{ url_for('reports.index') }}">All reports</a>
+      <span class="spacer"></span>
+      <a class="secondary-button" href="{{ url_for('reports.show', name=request.view_args.name, format='csv') }}">CSV</a>
+      <a class="secondary-button" href="{{ url_for('reports.show', name=request.view_args.name, format='xlsx') }}">XLSX</a>
+      <a class="secondary-button" href="{{ url_for('reports.show', name=request.view_args.name, format='pdf') }}">PDF</a>
+    </div>
+    <div class="table-wrap tall">
+      <table>
+        <thead><tr>{% for header in headers %}<th>{{ header }}</th>{% endfor %}</tr></thead>
+        <tbody>
+          {% for row in rows %}
+            <tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>
+          {% else %}
+            <tr><td colspan="{{ headers|length }}" class="empty">No rows for this report.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+{% endblock %}

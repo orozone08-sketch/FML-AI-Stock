@@ -1,0 +1,17 @@
+<div class="line-grid transfer" data-line-grid>
+  <div class="line-grid-head">
+    <span>Item</span><span>Quantity</span><span>Rate</span><span></span>
+  </div>
+  <div class="line-row opening-line">
+    <select name="item_id[]" required>
+      <option value="">Select item</option>
+      {% for item in items %}
+        <option value="{{ item.id }}">{{ item.display_name }}</option>
+      {% endfor %}
+    </select>
+    <input name="quantity[]" type="number" step="0.001" min="0" required>
+    <input name="rate[]" type="number" step="0.0001" min="0" required>
+    <button type="button" class="icon-button" data-remove-line>×</button>
+  </div>
+</div>
+<button type="button" class="secondary-button" data-add-line>Add line</button>

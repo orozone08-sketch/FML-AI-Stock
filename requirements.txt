@@ -1,0 +1,11 @@
+Flask>=3.0,<4
+Flask-Login>=0.6,<1
+Flask-SQLAlchemy>=3.1,<4
+Flask-WTF>=1.2,<2
+PyMySQL>=1.1,<2
+python-dotenv>=1.0,<2
+cryptography>=42,<46
+gunicorn>=22,<24
+openpyxl>=3.1,<4
+reportlab>=4.0,<5
+pytest>=8.0,<9

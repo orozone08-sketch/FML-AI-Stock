@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Login · FAstockFlow{% endblock %}
+{% block public_content %}
+  <main class="login-page">
+    <form class="login-card" method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="login-brand">
+        <span class="brand-mark large">FA</span>
+        <div>
+          <h1>FAstockFlow</h1>
+          <p>Stock & Ledger System</p>
+        </div>
+      </div>
+      <label>Email or login ID
+        <input name="email" type="email" autocomplete="username" required autofocus>
+      </label>
+      <label>Password
+        <span class="password-wrap">
+          <input id="password" name="password" type="password" autocomplete="current-password" required>
+          <button type="button" class="icon-button" data-toggle-password="#password">Show</button>
+        </span>
+      </label>
+      <button class="primary-button full" type="submit">Login</button>
+    </form>
+  </main>
+{% endblock %}

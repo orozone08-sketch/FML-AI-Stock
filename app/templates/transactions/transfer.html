@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block page_title %}Inter-Company Transfer{% endblock %}
+{% block page_subtitle %}Move FIFO-valued stock between FML and AI while preserving legal stock separation.{% endblock %}
+{% block content %}
+  <section class="panel">
+    <form method="post" class="form-grid wide">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label>From company
+        <select name="from_company_id" required>{% for company in companies %}<option value="{{ company.id }}">{{ company.code }} - {{ company.name }}</option>{% endfor %}</select>
+      </label>
+      <label>From stock book
+        <select name="from_stock_book_id" required>{% for book in stock_books %}<option value="{{ book.id }}">{{ book.code }} - {{ book.name }}</option>{% endfor %}</select>
+      </label>
+      <label>To company
+        <select name="to_company_id" required>{% for company in companies %}<option value="{{ company.id }}">{{ company.code }} - {{ company.name }}</option>{% endfor %}</select>
+      </label>
+      <label>To stock book
+        <select name="to_stock_book_id" required>{% for book in stock_books %}<option value="{{ book.id }}">{{ book.code }} - {{ book.name }}</option>{% endfor %}</select>
+      </label>
+      <label>Reference
+        <span class="input-action"><input id="transfer_ref" name="reference_number" required><button type="button" data-auto-ref="transfer" data-target="#transfer_ref">Auto</button></span>
+      </label>
+      <label>Transfer date <input name="transfer_date" type="date" required></label>
+      <label>Reason <input name="reason"></label>
+      <label class="check"><input name="mismatch_approved" value="1" type="checkbox"> Approve GST/cash mismatch</label>
+      <label class="full-span">Approval reason <textarea name="approval_reason"></textarea></label>
+      <label class="full-span">Remarks <textarea name="remarks"></textarea></label>
+      <div class="full-span">{% include "transactions/_transfer_lines.html" %}</div>
+      <div class="form-actions full-span"><button class="primary-button" type="submit">Save Transfer</button></div>
+    </form>
+  </section>
+  <section class="panel">
+    <div class="panel-title"><h2>Recent Transfers</h2><a href="{{ url_for('reports.show', name='inter-company') }}">Report</a></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Date</th><th>Reference</th><th>From</th><th>To</th><th>FIFO value</th><th>Approved</th></tr></thead>
+      <tbody>{% for row in transfers %}<tr><td>{{ row.transfer_date }}</td><td>{{ row.reference_number }}</td><td>{{ row.from_company.code }} / {{ row.from_stock_book.name }}</td><td>{{ row.to_company.code }} / {{ row.to_stock_book.name }}</td><td>{{ fmt_money(row.total_fifo_value) }}</td><td>{{ 'Yes' if row.mismatch_approved else 'No' }}</td></tr>{% else %}<tr><td colspan="6" class="empty">No transfers yet.</td></tr>{% endfor %}</tbody>
+    </table></div>
+  </section>
+{% endblock %}

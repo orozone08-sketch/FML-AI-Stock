@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block page_title %}Purchase{% endblock %}
+{% block page_subtitle %}Record supplier stock-in, FIFO layers, ledger entries, and payables.{% endblock %}
+{% block content %}
+  <section class="panel">
+    <form method="post" class="form-grid wide">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label>Company
+        <select name="company_id" required>{% for company in companies %}<option value="{{ company.id }}">{{ company.code }} - {{ company.name }}</option>{% endfor %}</select>
+      </label>
+      <label>Stock book
+        <select name="stock_book_id" required>{% for book in stock_books %}<option value="{{ book.id }}">{{ book.code }} - {{ book.name }}</option>{% endfor %}</select>
+      </label>
+      <label>Supplier
+        <select name="supplier_id" required>{% for supplier in suppliers %}<option value="{{ supplier.id }}">{{ supplier.code }} - {{ supplier.name }}</option>{% endfor %}</select>
+      </label>
+      <label>Purchase type
+        <select name="purchase_type"><option value="GST">GST</option><option value="CASH">CASH</option></select>
+      </label>
+      <label>Bill number
+        <span class="input-action"><input id="bill_number" name="bill_number" required><button type="button" data-auto-ref="purchase" data-target="#bill_number">Auto</button></span>
+      </label>
+      <label>Bill date <input name="bill_date" type="date" required></label>
+      <label>Due date <input name="due_date" type="date"></label>
+      <label class="full-span">Remarks <textarea name="remarks"></textarea></label>
+      <div class="full-span">{% include "transactions/_item_lines.html" %}</div>
+      <div class="form-actions full-span"><button class="primary-button" type="submit">Save Purchase</button></div>
+    </form>
+  </section>
+
+  <section class="panel">
+    <div class="panel-title"><h2>Recent Purchases</h2><a href="{{ url_for('reports.show', name='purchases') }}">Report</a></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Date</th><th>Company</th><th>Supplier</th><th>Bill</th><th>Total</th><th>Status</th></tr></thead>
+      <tbody>{% for row in purchases %}<tr><td>{{ row.bill_date }}</td><td>{{ row.company.code }}</td><td>{{ row.supplier.name }}</td><td>{{ row.bill_number }}</td><td>{{ fmt_money(row.grand_total) }}</td><td>{{ row.payment_status }}</td></tr>{% else %}<tr><td colspan="6" class="empty">No purchases yet.</td></tr>{% endfor %}</tbody>
+    </table></div>
+  </section>
+{% endblock %}
