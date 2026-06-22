@@ -8,13 +8,13 @@ from app.core.security import require_permission
 from app.extensions import db
 from app.models import (
     Company,
-    FIFOLayer,
     Item,
     Payable,
     Receivable,
     Sale,
     StockBook,
 )
+from app.services.stock import available_quantity, available_value
 from app.services.transactions import pending_transfer_summary
 
 bp = Blueprint("dashboard", __name__, url_prefix="/dashboard")
@@ -25,17 +25,18 @@ bp = Blueprint("dashboard", __name__, url_prefix="/dashboard")
 @require_permission("dashboard", "view")
 def index():
     stock_books = StockBook.query.filter_by(active=True).order_by(StockBook.code).all()
+    items = Item.query.filter_by(active=True).order_by(Item.code).all()
     stock_cards = []
     for book in stock_books:
-        quantity, value = (
-            db.session.query(
-                db.func.coalesce(db.func.sum(FIFOLayer.available_quantity), 0),
-                db.func.coalesce(db.func.sum(FIFOLayer.available_value), 0),
-            )
-            .filter(FIFOLayer.stock_book_id == book.id, FIFOLayer.available_quantity > 0)
-            .first()
+        quantity = sum(
+            (available_quantity(book.company_id, book.id, item.id) for item in items),
+            Decimal("0.000"),
         )
-        stock_cards.append({"book": book, "quantity": quantity or Decimal("0"), "value": value or Decimal("0")})
+        value = sum(
+            (available_value(book.company_id, book.id, item.id) for item in items),
+            Decimal("0.00"),
+        )
+        stock_cards.append({"book": book, "quantity": quantity, "value": value})
 
     today = date.today()
     month_start = today.replace(day=1)
@@ -58,17 +59,11 @@ def index():
     overdue_payables = Payable.query.filter(Payable.balance_amount > 0, Payable.due_date < today).order_by(Payable.due_date).limit(8).all()
     upcoming_count = Receivable.query.filter(Receivable.balance_amount > 0, Receivable.due_date <= today + timedelta(days=7)).count()
     low_stock = []
-    for item in Item.query.filter_by(active=True).all():
+    for item in items:
         for book in stock_books:
             quantity = (
-                db.session.query(db.func.coalesce(db.func.sum(FIFOLayer.available_quantity), 0))
-                .filter(
-                    FIFOLayer.stock_book_id == book.id,
-                    FIFOLayer.item_id == item.id,
-                    FIFOLayer.available_quantity > 0,
-                )
-                .scalar()
-            ) or Decimal("0")
+                available_quantity(book.company_id, book.id, item.id)
+            )
             if quantity <= item.minimum_stock:
                 low_stock.append({"item": item, "book": book, "quantity": quantity})
     inter_company_pending = sum(

@@ -4,7 +4,7 @@ from decimal import Decimal
 from flask import Blueprint, flash, redirect, render_template, request, url_for
 from flask_login import login_required
 
-from app.core.formatting import fmt_money, fmt_qty, money, qty
+from app.core.formatting import fmt_money, fmt_qty, money
 from app.core.security import require_permission
 from app.extensions import db
 from app.models import (
@@ -23,6 +23,7 @@ from app.models import (
     StockLedgerEntry,
 )
 from app.reports.exporting import export_table
+from app.services.stock import available_quantity, available_value
 from app.services.transactions import pending_transfer_summary
 
 bp = Blueprint("reports", __name__, url_prefix="/reports")
@@ -106,27 +107,17 @@ def current_stock_rows():
     items = Item.query.order_by(Item.code).all()
     for book in books:
         for item in items:
-            quantity_value = (
-                db.session.query(
-                    db.func.coalesce(db.func.sum(FIFOLayer.available_quantity), 0),
-                    db.func.coalesce(db.func.sum(FIFOLayer.available_value), 0),
-                )
-                .filter(
-                    FIFOLayer.stock_book_id == book.id,
-                    FIFOLayer.item_id == item.id,
-                    FIFOLayer.available_quantity > 0,
-                )
-                .first()
-            )
-            quantity, value = quantity_value
-            quantity = qty(quantity or 0)
-            if quantity == Decimal("0.000"):
+            quantity = available_quantity(book.company_id, book.id, item.id)
+            value = available_value(book.company_id, book.id, item.id)
+            if quantity < Decimal("0.000"):
+                status = "NEGATIVE"
+            elif quantity == Decimal("0.000"):
                 status = "OUT"
             elif quantity <= item.minimum_stock:
                 status = "LOW"
             else:
                 status = "NORMAL"
-            rows.append([book.company.code, book.name, item.code, item.name, item.unit, fmt_qty(quantity), fmt_money(value or 0), fmt_qty(item.minimum_stock), status])
+            rows.append([book.company.code, book.name, item.code, item.name, item.unit, fmt_qty(quantity), fmt_money(value), fmt_qty(item.minimum_stock), status])
     return headers, rows
 
 
@@ -320,13 +311,10 @@ def stock_alert_rows():
     items = Item.query.filter_by(active=True).order_by(Item.code).all()
     for book in books:
         for item in items:
-            quantity = (
-                db.session.query(db.func.coalesce(db.func.sum(FIFOLayer.available_quantity), 0))
-                .filter(FIFOLayer.stock_book_id == book.id, FIFOLayer.item_id == item.id, FIFOLayer.available_quantity > 0)
-                .scalar()
-            ) or Decimal("0")
-            quantity = qty(quantity)
-            if quantity == Decimal("0.000"):
+            quantity = available_quantity(book.company_id, book.id, item.id)
+            if quantity < Decimal("0.000"):
+                rows.append(["NEGATIVE", book.company.code, book.name, item.display_name, fmt_qty(quantity), fmt_qty(item.minimum_stock), f"{item.name} is negative in {book.name}."])
+            elif quantity == Decimal("0.000"):
                 rows.append(["OUT", book.company.code, book.name, item.display_name, fmt_qty(quantity), fmt_qty(item.minimum_stock), f"{item.name} is out of stock in {book.name}."])
             elif quantity <= item.minimum_stock:
                 rows.append(["LOW", book.company.code, book.name, item.display_name, fmt_qty(quantity), fmt_qty(item.minimum_stock), f"{item.name} is low in {book.name}."])

@@ -29,7 +29,7 @@ def ids():
     }
 
 
-def test_fifo_sale_and_negative_stock_rejection(app):
+def test_fifo_sale_allows_negative_stock(app):
     with app.app_context():
         data = ids()
         create_opening_stock(
@@ -70,19 +70,22 @@ def test_fifo_sale_and_negative_stock_rejection(app):
         assert sale.fifo_cost == 1600
         assert available_quantity(data["ai"].id, data["ai_gst"].id, data["item"].id) == 15
 
-        with pytest.raises(ValueError):
-            create_sale(
-                {
-                    "company_id": data["ai"].id,
-                    "stock_book_id": data["ai_gst"].id,
-                    "customer_id": data["customer"].id,
-                    "sale_type": "GST",
-                    "invoice_number": "INV-OVER",
-                    "invoice_date": "2026-01-04",
-                },
-                [{"item_id": data["item"].id, "quantity": "99", "rate": "150", "gst_percent": "18"}],
-                admin(),
-            )
+        negative_sale = create_sale(
+            {
+                "company_id": data["ai"].id,
+                "stock_book_id": data["ai_gst"].id,
+                "customer_id": data["customer"].id,
+                "sale_type": "GST",
+                "invoice_number": "INV-OVER",
+                "invoice_date": "2026-01-04",
+            },
+            [{"item_id": data["item"].id, "quantity": "99", "rate": "150", "gst_percent": "18"}],
+            admin(),
+        )
+        db.session.commit()
+
+        assert negative_sale.fifo_cost == 1800
+        assert available_quantity(data["ai"].id, data["ai_gst"].id, data["item"].id) == -84
 
 
 def test_transfer_issue_return_and_pending_balance(app):

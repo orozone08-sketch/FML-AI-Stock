@@ -1,4 +1,5 @@
 from decimal import Decimal
+from types import SimpleNamespace
 
 from app.core.formatting import money, qty
 from app.extensions import db
@@ -89,35 +90,71 @@ def stock_ledger(
 
 def current_stock(company_id=None, stock_book_id=None, item_id=None):
     query = db.session.query(
-        FIFOLayer.company_id,
-        FIFOLayer.stock_book_id,
-        FIFOLayer.item_id,
-        db.func.coalesce(db.func.sum(FIFOLayer.available_quantity), 0).label("quantity"),
-        db.func.coalesce(db.func.sum(FIFOLayer.available_value), 0).label("value"),
-    ).filter(FIFOLayer.available_quantity > 0)
+        StockLedgerEntry.company_id,
+        StockLedgerEntry.stock_book_id,
+        StockLedgerEntry.item_id,
+        db.func.coalesce(
+            db.func.sum(StockLedgerEntry.quantity_in - StockLedgerEntry.quantity_out), 0
+        ).label("quantity"),
+        db.func.coalesce(
+            db.func.sum(
+                db.case(
+                    (StockLedgerEntry.movement_type == "IN", StockLedgerEntry.value),
+                    else_=-StockLedgerEntry.value,
+                )
+            ),
+            0,
+        ).label("value"),
+    )
     if company_id:
-        query = query.filter(FIFOLayer.company_id == company_id)
+        query = query.filter(StockLedgerEntry.company_id == company_id)
     if stock_book_id:
-        query = query.filter(FIFOLayer.stock_book_id == stock_book_id)
+        query = query.filter(StockLedgerEntry.stock_book_id == stock_book_id)
     if item_id:
-        query = query.filter(FIFOLayer.item_id == item_id)
+        query = query.filter(StockLedgerEntry.item_id == item_id)
     return query.group_by(
-        FIFOLayer.company_id, FIFOLayer.stock_book_id, FIFOLayer.item_id
+        StockLedgerEntry.company_id, StockLedgerEntry.stock_book_id, StockLedgerEntry.item_id
     ).all()
 
 
 def available_quantity(company_id, stock_book_id, item_id):
     value = (
-        db.session.query(db.func.coalesce(db.func.sum(FIFOLayer.available_quantity), 0))
+        db.session.query(
+            db.func.coalesce(
+                db.func.sum(StockLedgerEntry.quantity_in - StockLedgerEntry.quantity_out), 0
+            )
+        )
         .filter(
-            FIFOLayer.company_id == company_id,
-            FIFOLayer.stock_book_id == stock_book_id,
-            FIFOLayer.item_id == item_id,
-            FIFOLayer.available_quantity > 0,
+            StockLedgerEntry.company_id == company_id,
+            StockLedgerEntry.stock_book_id == stock_book_id,
+            StockLedgerEntry.item_id == item_id,
         )
         .scalar()
     )
     return qty(value)
+
+
+def available_value(company_id, stock_book_id, item_id):
+    value = (
+        db.session.query(
+            db.func.coalesce(
+                db.func.sum(
+                    db.case(
+                        (StockLedgerEntry.movement_type == "IN", StockLedgerEntry.value),
+                        else_=-StockLedgerEntry.value,
+                    )
+                ),
+                0,
+            )
+        )
+        .filter(
+            StockLedgerEntry.company_id == company_id,
+            StockLedgerEntry.stock_book_id == stock_book_id,
+            StockLedgerEntry.item_id == item_id,
+        )
+        .scalar()
+    )
+    return money(value)
 
 
 def consume_fifo(
@@ -142,12 +179,6 @@ def consume_fifo(
         .with_for_update()
         .all()
     )
-    total_available = qty(sum((layer.available_quantity for layer in layers), Decimal("0.000")))
-    if total_available < required_quantity:
-        raise ValueError(
-            f"Insufficient stock. Available: {total_available}; requested: {required_quantity}."
-        )
-
     consumptions = []
     for layer in layers:
         if remaining <= Decimal("0.000"):
@@ -169,5 +200,18 @@ def consume_fifo(
         db.session.add(consumption)
         consumptions.append((layer, consumption))
         remaining = qty(remaining - take)
+
+    if remaining > Decimal("0.000"):
+        consumptions.append(
+            (
+                None,
+                SimpleNamespace(
+                    quantity=remaining,
+                    rate=Decimal("0.0000"),
+                    value=Decimal("0.00"),
+                    is_negative_stock=True,
+                ),
+            )
+        )
 
     return consumptions
