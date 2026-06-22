@@ -5,9 +5,10 @@
     <form class="login-card" method="post">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="login-brand">
+        <span class="brand-mark large logo-mark"><img src="{{ url_for('static', filename='img/fastockflow-icon.png', v=asset_version) }}" alt="FAstockFlow"></span>
         <div>
-          <h1>Company Login</h1>
-          <p>Select your company and enter its password.</p>
+          <h1>FAstockFlow</h1>
+          <p>Company login for FirstTech and Aditya users.</p>
         </div>
       </div>
       <div class="login-company-options" role="radiogroup" aria-label="Company login">

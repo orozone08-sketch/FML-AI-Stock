@@ -72,6 +72,8 @@ def test_login_page_has_direct_company_options(client):
     assert 'value="adityainternational.user"' in html
     assert "firsttech-logo.jpg" in html
     assert "aditya-logo.jpg" in html
+    assert "FAstockFlow" in html
+    assert "Company login for FirstTech and Aditya users." in html
     assert 'name="email" type="text"' not in html
 
 
