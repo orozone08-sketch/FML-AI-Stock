@@ -1,4 +1,4 @@
-from app.models import FIFOLayer, InterCompanyTransfer, OpeningStock, StockLedgerEntry
+from app.models import FIFOLayer, InterCompanyLedgerEntry, InterCompanyTransfer, OpeningStock, StockLedgerEntry
 from tests.test_fifo_workflows import ids
 from tests.test_navigation import login
 
@@ -108,3 +108,34 @@ def test_opening_pending_stock_saves_without_stock_books_or_rate(client, app):
         assert transfer.from_stock_book.code == "FML_GST"
         assert transfer.to_stock_book.code == "AI_GST"
         assert transfer.lines[0].fifo_value == 0
+
+
+def test_opening_pending_stock_can_be_negative(client, app):
+    with app.app_context():
+        data = ids()
+        owner_id = data["fml"].id
+        user_id = data["ai"].id
+        item_id = data["item"].id
+
+    login(client)
+    response = client.post(
+        "/transactions/opening/pending-stock",
+        data={
+            "from_company_id": owner_id,
+            "to_company_id": user_id,
+            "reference_number": "PEND-NEGATIVE",
+            "transfer_date": "2026-06-22",
+            "item_id[]": [item_id],
+            "quantity[]": ["-3"],
+        },
+        follow_redirects=True,
+    )
+    assert response.status_code == 200
+    assert b"Opening pending stock PEND-NEGATIVE saved." in response.data
+
+    with app.app_context():
+        transfer = InterCompanyTransfer.query.filter_by(reference_number="PEND-NEGATIVE").one()
+        ledger = InterCompanyLedgerEntry.query.filter_by(transfer_id=transfer.id).one()
+        assert transfer.lines[0].quantity == -3
+        assert transfer.lines[0].fifo_value == 0
+        assert ledger.quantity == -3

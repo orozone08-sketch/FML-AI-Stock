@@ -16,3 +16,12 @@ def test_master_sidebar_marks_only_current_menu_active(client):
     assert 'class="active">Items</a>' in nav_html
     assert 'class="active">Customers</a>' not in nav_html
     assert 'class="active">Suppliers</a>' not in nav_html
+
+
+def test_sidebar_company_names_link_to_dashboard(client):
+    login(client)
+    response = client.get("/transactions/opening")
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert '<a class="footer-link" href="/dashboard/">FirstTech Machine LLP</a>' in html
+    assert '<a class="footer-link" href="/dashboard/">Aditya International</a>' in html

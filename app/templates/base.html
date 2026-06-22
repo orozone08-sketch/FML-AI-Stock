@@ -46,8 +46,8 @@
             {% endfor %}
           </nav>
           <div class="sidebar-footer">
-            <small>FirstTech Machine LLP</small>
-            <small>Aditya International</small>
+            <a class="footer-link" href="{{ url_for('dashboard.index') }}">FirstTech Machine LLP</a>
+            <a class="footer-link" href="{{ url_for('dashboard.index') }}">Aditya International</a>
             <form action="{{ url_for('auth.logout') }}" method="post">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <button class="ghost-button full" type="submit">Logout</button>

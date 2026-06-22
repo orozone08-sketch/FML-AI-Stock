@@ -1352,7 +1352,9 @@ def create_opening_pending_stock(data, lines, user):
     total = Decimal("0.00")
     for row in _clean_lines(lines):
         item = active_item(row.get("item_id"))
-        quantity = positive_qty(row.get("quantity"))
+        quantity = qty(row.get("quantity"))
+        if quantity == Decimal("0.000"):
+            raise ValueError("Quantity cannot be zero.")
         rate = _optional_opening_rate(row.get("rate"))
         line_value = money(quantity * rate)
         line = TransferLine(
