@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from flask import Blueprint, flash, get_flashed_messages, redirect, render_template, request, url_for
+from flask import Blueprint, flash, get_flashed_messages, make_response, redirect, render_template, request, url_for
 from flask_login import current_user, login_required, login_user, logout_user
 
 from app.extensions import db
@@ -15,11 +15,17 @@ def render_login(message="", category="danger"):
     flashed = get_flashed_messages(with_categories=True)
     if not message and flashed:
         category, message = flashed[0]
-    return render_template(
-        "auth/login.html",
-        login_message=message or "",
-        login_message_category=category or "info",
+    response = make_response(
+        render_template(
+            "auth/login.html",
+            login_message=message or "",
+            login_message_category=category or "info",
+        )
     )
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 
 @bp.route("/", methods=["GET"])
