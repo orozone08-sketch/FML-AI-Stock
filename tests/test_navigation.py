@@ -26,7 +26,7 @@ def test_company_login_selects_aditya_context(client):
     assert response.status_code == 200
     assert b"Aditya International" in response.data
     assert b'body class="theme-aditya"' in response.data
-    assert b"Aditya StockFlow" in response.data
+    assert b"Jewellery factory supplies stock control" in response.data
     assert b"aditya-logo.jpg" in response.data
     assert b"Choose Company" not in response.data
 
@@ -36,7 +36,7 @@ def test_company_login_selects_firsttech_context(client):
     assert response.status_code == 200
     assert b"FirstTech Machine LLP" in response.data
     assert b'body class="theme-firsttech"' in response.data
-    assert b"FirstTech StockFlow" in response.data
+    assert b"Next generation technology stock control" in response.data
     assert b"firsttech-logo.jpg" in response.data
     assert b"Choose Company" not in response.data
 
@@ -55,12 +55,24 @@ def test_fixed_company_login_cannot_switch_company(client):
     assert b"Aditya International</button>" not in response.data
 
 
-def test_admin_login_uses_company_chooser(client):
+def test_admin_login_is_not_a_fastockflow_login(client):
     response = login(client, "admin@fastockflow.local", "ChangeMe123!")
     assert response.status_code == 200
-    assert b"Choose Company" in response.data
+    assert b"Use the FirstTech or Aditya company login." in response.data
+    assert b"Company Login" in response.data
     assert b"FirstTech Machine LLP" in response.data
     assert b"Aditya International" in response.data
+
+
+def test_login_page_has_direct_company_options(client):
+    response = client.get("/login")
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert 'value="firsttech.user"' in html
+    assert 'value="adityainternational.user"' in html
+    assert "firsttech-logo.jpg" in html
+    assert "aditya-logo.jpg" in html
+    assert 'name="email" type="text"' not in html
 
 
 def test_master_sidebar_marks_only_current_menu_active(client):

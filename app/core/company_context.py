@@ -12,12 +12,12 @@ COMPANY_ORDER = {"FML": 0, "AI": 1}
 COMPANY_THEMES = {
     "FML": {
         "body_class": "theme-firsttech",
-        "app_name": "FirstTech StockFlow",
+        "app_name": "FirstTech Machine LLP",
         "tagline": "Next generation technology stock control",
     },
     "AI": {
         "body_class": "theme-aditya",
-        "app_name": "Aditya StockFlow",
+        "app_name": "Aditya International",
         "tagline": "Jewellery factory supplies stock control",
     },
 }
@@ -40,10 +40,10 @@ def company_theme(company):
     if not company:
         return {
             "body_class": "theme-default",
-            "app_name": "FAstockFlow",
-            "tagline": "Stock & Ledger System",
+            "app_name": "Company Login",
+            "tagline": "Select FirstTech or Aditya to continue",
         }
-    return COMPANY_THEMES.get(company.code, COMPANY_THEMES.get("AI"))
+    return COMPANY_THEMES.get(company.code, COMPANY_THEMES["AI"])
 
 
 def active_company():

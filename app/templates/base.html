@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{% block title %}FAstockFlow{% endblock %}</title>
+    <title>{% block title %}{{ active_company.name if active_company else 'Company Login' }}{% endblock %}</title>
     <link rel="icon" href="{{ url_for('static', filename=company_logo(active_company) if active_company else 'img/fastockflow-icon.png', v=asset_version) }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css', v=asset_version) }}">
   </head>
@@ -12,10 +12,10 @@
       <div class="app-shell">
         <aside class="sidebar">
           <a class="brand" href="{{ url_for('dashboard.index') }}">
-            <span class="brand-mark logo-mark company-brand-mark"><img src="{{ url_for('static', filename=company_logo(active_company) if active_company else 'img/fastockflow-icon.png', v=asset_version) }}" alt="{{ active_company.name if active_company else 'FAstockFlow' }}"></span>
+            <span class="brand-mark logo-mark company-brand-mark"><img src="{{ url_for('static', filename=company_logo(active_company), v=asset_version) }}" alt="{{ active_company.name }}"></span>
             <span>
               <strong>{{ active_company_theme.app_name }}</strong>
-              <small>{{ active_company.name if active_company else active_company_theme.tagline }}</small>
+              <small>{{ active_company_theme.tagline }}</small>
             </span>
           </a>
           <nav class="nav">
@@ -70,10 +70,10 @@
             </div>
             <div class="topbar-actions">
               {% if active_company %}
-                <a class="company-chip" href="{{ url_for('company.choose') }}">
+                <div class="company-chip">
                   <img src="{{ url_for('static', filename=company_logo(active_company), v=asset_version) }}" alt="">
                   <span>{{ active_company.name }}</span>
-                </a>
+                </div>
               {% endif %}
               <div class="music-control" data-music-control>
                 <button class="music-toggle" type="button" data-music-toggle aria-label="Mute background music" aria-pressed="false" title="Mute background music">

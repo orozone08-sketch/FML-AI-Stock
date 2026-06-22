@@ -1,20 +1,29 @@
 {% extends "base.html" %}
-{% block title %}Login · FAstockFlow{% endblock %}
+{% block title %}Company Login{% endblock %}
 {% block public_content %}
   <main class="login-page">
     <form class="login-card" method="post">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="login-brand">
-        <span class="brand-mark large logo-mark"><img src="{{ url_for('static', filename='img/fastockflow-icon.png', v=asset_version) }}" alt="FAstockFlow"></span>
         <div>
-          <h1>FAstockFlow</h1>
-          <p>Stock & Ledger System</p>
+          <h1>Company Login</h1>
+          <p>Select your company and enter its password.</p>
         </div>
       </div>
-      <img class="login-wordmark" src="{{ url_for('static', filename='img/fastockflow-wordmark.png', v=asset_version) }}" alt="FAstockFlow">
-      <label>Login ID
-        <input name="email" type="text" autocomplete="username" required autofocus>
-      </label>
+      <div class="login-company-options" role="radiogroup" aria-label="Company login">
+        <label class="login-company-option">
+          <input name="email" type="radio" value="firsttech.user" required autofocus>
+          <img src="{{ url_for('static', filename='img/firsttech-logo.jpg', v=asset_version) }}" alt="FirstTech Machine LLP">
+          <span>FirstTech Machine LLP</span>
+          <small>Login ID: firsttech.user</small>
+        </label>
+        <label class="login-company-option">
+          <input name="email" type="radio" value="adityainternational.user" required>
+          <img src="{{ url_for('static', filename='img/aditya-logo.jpg', v=asset_version) }}" alt="Aditya International">
+          <span>Aditya International</span>
+          <small>Login ID: Adityainternational.user</small>
+        </label>
+      </div>
       <label>Password
         <span class="password-wrap">
           <input id="password" name="password" type="password" autocomplete="current-password" required>

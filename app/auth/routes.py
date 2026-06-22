@@ -31,16 +31,17 @@ def login():
         elif not user.active:
             flash("This user is inactive. Ask an administrator to reactivate it.", "danger")
         else:
-            login_user(user)
             clear_active_company()
             company = set_active_company_for_user(user)
+            if not company:
+                flash("Use the FirstTech or Aditya company login.", "danger")
+                return render_template("auth/login.html")
+            login_user(user)
             user.last_login_at = datetime.utcnow()
             audit("login", "User", user.id, user.email, user=user)
             db.session.commit()
             next_url = request.args.get("next") or url_for("dashboard.index")
-            if company:
-                return redirect(next_url)
-            return redirect(url_for("company.choose", next=next_url))
+            return redirect(next_url)
     return render_template("auth/login.html")
 
 

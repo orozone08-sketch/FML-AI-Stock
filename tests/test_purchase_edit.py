@@ -2,7 +2,7 @@ from app.extensions import db
 import pytest
 from decimal import Decimal
 
-from app.models import FIFOLayer, Payable, Purchase, StockLedgerEntry, User
+from app.models import FIFOLayer, Payable, Purchase, StockLedgerEntry
 from app.services.stock import available_quantity
 from app.services.transactions import create_purchase, create_sale, update_purchase_header, update_purchase_lines
 from tests.test_fifo_workflows import admin, ids
@@ -214,16 +214,8 @@ def test_purchase_edit_page_renders(client, app):
     assert b"UI-BILL" in response.data
 
 
-def test_stock_user_sees_edit_for_existing_purchase(client, app):
+def test_company_user_sees_edit_for_existing_purchase(client, app):
     with app.app_context():
-        stock_user = User(
-            name="Stock User",
-            email="stock@example.com",
-            role="STOCK",
-            active=True,
-        )
-        stock_user.set_password("Stock123!")
-        db.session.add(stock_user)
         data = ids()
         purchase = create_purchase(
             {
@@ -240,7 +232,7 @@ def test_stock_user_sees_edit_for_existing_purchase(client, app):
         db.session.commit()
         edit_href = f"/transactions/purchase/{purchase.id}/edit"
 
-    login(client, "stock@example.com", "Stock123!", company_code="AI")
+    login(client)
     list_response = client.get("/transactions/purchase")
     assert list_response.status_code == 200
     assert edit_href.encode() in list_response.data

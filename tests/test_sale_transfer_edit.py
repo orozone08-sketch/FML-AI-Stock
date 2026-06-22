@@ -4,7 +4,6 @@ from app.models import (
     Receivable,
     Sale,
     StockLedgerEntry,
-    User,
 )
 from app.services.transactions import (
     create_opening_stock,
@@ -138,16 +137,8 @@ def test_sale_delete_restores_fifo_stock(app):
         assert Receivable.query.filter_by(source_type="SALE", source_id=sale.id).count() == 0
 
 
-def test_sales_user_sees_edit_for_existing_sale(client, app):
+def test_company_user_sees_edit_for_existing_sale(client, app):
     with app.app_context():
-        sales_user = User(
-            name="Sales User",
-            email="sales@example.com",
-            role="SALES",
-            active=True,
-        )
-        sales_user.set_password("Sales123!")
-        db.session.add(sales_user)
         data = ids()
         seed_stock(data, "SALES-UI-STOCK")
         sale = create_sale(
@@ -165,7 +156,7 @@ def test_sales_user_sees_edit_for_existing_sale(client, app):
         db.session.commit()
         edit_href = f"/transactions/sale/{sale.id}/edit"
 
-    login(client, "sales@example.com", "Sales123!", company_code="AI")
+    login(client)
     list_response = client.get("/transactions/sale")
     assert list_response.status_code == 200
     assert edit_href.encode() in list_response.data
@@ -216,16 +207,8 @@ def test_transfer_header_edit_updates_linked_references(app):
         assert FIFOLayer.query.filter_by(source_type="TRANSFER_IN", source_id=transfer.id).count() == 0
 
 
-def test_stock_user_sees_edit_for_existing_transfer(client, app):
+def test_company_user_sees_edit_for_existing_transfer(client, app):
     with app.app_context():
-        stock_user = User(
-            name="Transfer Stock User",
-            email="transfer-stock@example.com",
-            role="STOCK",
-            active=True,
-        )
-        stock_user.set_password("Stock123!")
-        db.session.add(stock_user)
         data = ids()
         seed_stock(data, "TRF-UI-STOCK")
         transfer = create_transfer(
@@ -243,7 +226,7 @@ def test_stock_user_sees_edit_for_existing_transfer(client, app):
         db.session.commit()
         edit_href = f"/transactions/transfer/{transfer.id}/edit"
 
-    login(client, "transfer-stock@example.com", "Stock123!", company_code="AI")
+    login(client)
     list_response = client.get("/transactions/transfer")
     assert list_response.status_code == 200
     assert edit_href.encode() in list_response.data

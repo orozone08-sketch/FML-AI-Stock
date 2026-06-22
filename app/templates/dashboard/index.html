@@ -4,9 +4,9 @@
 {% block content %}
   <section class="hero-panel">
     <div class="hero-brand">
-      <span class="hero-logo company-hero-logo"><img src="{{ url_for('static', filename=company_logo(active_company) if active_company else 'img/fastockflow-icon.png', v=asset_version) }}" alt="{{ active_company.name if active_company else 'FAstockFlow' }}"></span>
+      <span class="hero-logo company-hero-logo"><img src="{{ url_for('static', filename=company_logo(active_company), v=asset_version) }}" alt="{{ active_company.name }}"></span>
       <div>
-        <h2>{{ active_company.name if active_company else 'FAstockFlow' }}</h2>
+        <h2>{{ active_company.name }}</h2>
         <p>{{ active_company_theme.tagline }}</p>
       </div>
     </div>
