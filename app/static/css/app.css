@@ -142,6 +142,54 @@ button, input, select, textarea { font: inherit; }
   align-items: center;
   gap: 10px;
 }
+.music-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 10px 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 8px 18px rgba(15, 37, 68, 0.06);
+}
+.music-toggle {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: rgba(17, 168, 136, 0.10);
+  color: var(--navy);
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease, transform 160ms ease;
+}
+.music-toggle:hover {
+  background: rgba(17, 168, 136, 0.18);
+  transform: translateY(-1px);
+}
+.music-toggle[aria-pressed="true"] {
+  background: rgba(220, 38, 38, 0.10);
+  color: var(--danger);
+}
+.music-icon {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.music-icon-off { display: none; }
+.music-toggle[aria-pressed="true"] .music-icon-on { display: none; }
+.music-toggle[aria-pressed="true"] .music-icon-off { display: block; }
+.music-volume {
+  width: 96px;
+  accent-color: var(--teal);
+}
 .bell-button {
   position: relative;
   display: inline-grid;

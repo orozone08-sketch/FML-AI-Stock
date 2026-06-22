@@ -61,6 +61,21 @@
               <p>{% block page_subtitle %}Real-time stock, FIFO, payments and inter-company control{% endblock %}</p>
             </div>
             <div class="topbar-actions">
+              <div class="music-control" data-music-control>
+                <button class="music-toggle" type="button" data-music-toggle aria-label="Mute background music" aria-pressed="false" title="Mute background music">
+                  <svg class="music-icon music-icon-on" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M11 5 6 9H3v6h3l5 4V5z"></path>
+                    <path d="M15.5 8.5a5 5 0 0 1 0 7"></path>
+                    <path d="M18.5 5.5a9 9 0 0 1 0 13"></path>
+                  </svg>
+                  <svg class="music-icon music-icon-off" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M11 5 6 9H3v6h3l5 4V5z"></path>
+                    <path d="m16 9 5 5"></path>
+                    <path d="m21 9-5 5"></path>
+                  </svg>
+                </button>
+                <input class="music-volume" type="range" min="0" max="100" step="1" value="18" data-music-volume aria-label="Background music volume">
+              </div>
               {% if due_alert_count is not none %}
                 <a class="bell-button" href="{{ url_for('reports.show', name='due-alerts') }}" title="Due alerts" aria-label="Due alerts">
                   <svg viewBox="0 0 24 24" aria-hidden="true">

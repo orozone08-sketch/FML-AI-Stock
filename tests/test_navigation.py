@@ -25,3 +25,13 @@ def test_sidebar_company_names_link_to_dashboard(client):
     html = response.get_data(as_text=True)
     assert '<a class="footer-link" href="/dashboard/">FirstTech Machine LLP</a>' in html
     assert '<a class="footer-link" href="/dashboard/">Aditya International</a>' in html
+
+
+def test_topbar_includes_music_controls(client):
+    login(client)
+    response = client.get("/dashboard/")
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert 'data-music-toggle' in html
+    assert 'data-music-volume' in html
+    assert 'aria-label="Background music volume"' in html

@@ -1,4 +1,22 @@
 let audioContext;
+let musicGain;
+let musicTimer;
+let musicStarted = false;
+let musicStep = 0;
+
+const defaultMusicSettings = { muted: false, volume: 0.18 };
+const musicStorageKey = "fastockflow.backgroundMusic";
+const musicPattern = [
+  { frequencies: [261.63, 329.63], duration: 0.38 },
+  { frequencies: [392.0], duration: 0.28 },
+  { frequencies: [293.66, 369.99], duration: 0.38 },
+  { frequencies: [440.0], duration: 0.28 },
+  { frequencies: [329.63, 493.88], duration: 0.42 },
+  { frequencies: [392.0], duration: 0.28 },
+  { frequencies: [246.94, 329.63], duration: 0.42 },
+  { frequencies: [349.23], duration: 0.32 },
+];
+let musicSettings = loadMusicSettings();
 
 async function getAudioContext() {
   const AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -6,6 +24,127 @@ async function getAudioContext() {
   audioContext = audioContext || new AudioCtx();
   if (audioContext.state === "suspended") await audioContext.resume();
   return audioContext;
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function loadMusicSettings() {
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(musicStorageKey) || "{}");
+    return {
+      muted: Boolean(stored.muted),
+      volume: clamp(Number.isFinite(Number(stored.volume)) ? Number(stored.volume) : defaultMusicSettings.volume, 0, 1),
+    };
+  } catch (error) {
+    return { ...defaultMusicSettings };
+  }
+}
+
+function saveMusicSettings() {
+  try {
+    window.localStorage.setItem(musicStorageKey, JSON.stringify(musicSettings));
+  } catch (error) {
+    // Local storage can be unavailable in private contexts; audio should still work for this page load.
+  }
+}
+
+function getMusicControls() {
+  return {
+    toggle: document.querySelector("[data-music-toggle]"),
+    volume: document.querySelector("[data-music-volume]"),
+  };
+}
+
+function updateMusicControls() {
+  const controls = getMusicControls();
+  if (!controls.toggle || !controls.volume) return;
+  const isMuted = musicSettings.muted || musicSettings.volume === 0;
+  controls.toggle.setAttribute("aria-pressed", String(isMuted));
+  controls.toggle.setAttribute("aria-label", isMuted ? "Play background music" : "Mute background music");
+  controls.toggle.setAttribute("title", isMuted ? "Play background music" : "Mute background music");
+  controls.volume.value = String(Math.round(musicSettings.volume * 100));
+}
+
+function targetMusicVolume() {
+  return musicSettings.muted ? 0 : musicSettings.volume;
+}
+
+function applyMusicGain() {
+  if (!audioContext || !musicGain) return;
+  const now = audioContext.currentTime;
+  musicGain.gain.cancelScheduledValues(now);
+  musicGain.gain.setTargetAtTime(targetMusicVolume(), now, 0.05);
+}
+
+async function ensureMusicOutput() {
+  const context = await getAudioContext();
+  if (!context) return null;
+  if (!musicGain) {
+    musicGain = context.createGain();
+    musicGain.gain.value = 0;
+    musicGain.connect(context.destination);
+  }
+  applyMusicGain();
+  return context;
+}
+
+function playMusicPulse() {
+  if (!audioContext || !musicGain) return;
+  const note = musicPattern[musicStep % musicPattern.length];
+  const now = audioContext.currentTime;
+  const noteGain = audioContext.createGain();
+  const filter = audioContext.createBiquadFilter();
+
+  filter.type = "lowpass";
+  filter.frequency.setValueAtTime(1500, now);
+  noteGain.gain.setValueAtTime(0.0001, now);
+  noteGain.gain.exponentialRampToValueAtTime(0.16, now + 0.035);
+  noteGain.gain.exponentialRampToValueAtTime(0.0001, now + note.duration);
+  filter.connect(noteGain);
+  noteGain.connect(musicGain);
+
+  note.frequencies.forEach((frequency, index) => {
+    const oscillator = audioContext.createOscillator();
+    oscillator.type = index === 0 ? "triangle" : "sine";
+    oscillator.frequency.setValueAtTime(frequency, now);
+    oscillator.detune.setValueAtTime(index * 4, now);
+    oscillator.connect(filter);
+    oscillator.start(now);
+    oscillator.stop(now + note.duration + 0.04);
+  });
+}
+
+function scheduleMusicPulse() {
+  if (!musicStarted) return;
+  if (musicSettings.muted || musicSettings.volume === 0 || document.hidden) {
+    stopBackgroundMusic();
+    return;
+  }
+  playMusicPulse();
+  musicStep = (musicStep + 1) % musicPattern.length;
+  musicTimer = window.setTimeout(scheduleMusicPulse, 520);
+}
+
+async function startBackgroundMusic() {
+  if (musicStarted || musicSettings.muted || musicSettings.volume === 0) {
+    applyMusicGain();
+    return;
+  }
+  const context = await ensureMusicOutput();
+  if (!context || document.hidden) return;
+  musicStarted = true;
+  scheduleMusicPulse();
+}
+
+function stopBackgroundMusic() {
+  if (musicTimer) {
+    window.clearTimeout(musicTimer);
+    musicTimer = null;
+  }
+  musicStarted = false;
+  applyMusicGain();
 }
 
 async function playTone(kind) {
@@ -33,6 +172,22 @@ async function playTone(kind) {
 }
 
 document.addEventListener("click", async (event) => {
+  const musicToggle = event.target.closest("[data-music-toggle]");
+  if (musicToggle) {
+    musicSettings.muted = !(musicSettings.muted || musicSettings.volume === 0);
+    if (!musicSettings.muted && musicSettings.volume === 0) {
+      musicSettings.volume = defaultMusicSettings.volume;
+    }
+    saveMusicSettings();
+    updateMusicControls();
+    if (musicSettings.muted) {
+      stopBackgroundMusic();
+    } else {
+      await startBackgroundMusic();
+    }
+    return;
+  }
+
   const toggle = event.target.closest("[data-toggle-password]");
   if (toggle) {
     const input = document.querySelector(toggle.dataset.togglePassword);
@@ -84,6 +239,8 @@ document.addEventListener("click", async (event) => {
       auto.disabled = false;
     }
   }
+
+  startBackgroundMusic();
 });
 
 document.addEventListener("submit", (event) => {
@@ -170,6 +327,16 @@ document.addEventListener("change", (event) => {
 });
 
 document.addEventListener("input", (event) => {
+  if (event.target.matches("[data-music-volume]")) {
+    musicSettings.volume = clamp(parseInt(event.target.value, 10) / 100 || 0, 0, 1);
+    musicSettings.muted = musicSettings.volume === 0;
+    saveMusicSettings();
+    updateMusicControls();
+    applyMusicGain();
+    startBackgroundMusic();
+    return;
+  }
+
   if (
     event.target.matches('input[name="quantity[]"]') ||
     event.target.matches('input[name="rate[]"]') ||
@@ -179,5 +346,14 @@ document.addEventListener("input", (event) => {
   }
 });
 
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    stopBackgroundMusic();
+  } else {
+    startBackgroundMusic();
+  }
+});
+
+updateMusicControls();
 document.querySelectorAll("form").forEach(filterStockBooks);
 document.querySelectorAll(".line-row").forEach(updateLineTotal);
