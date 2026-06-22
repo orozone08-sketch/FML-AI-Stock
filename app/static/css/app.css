@@ -459,7 +459,7 @@ textarea { min-height: 84px; resize: vertical; }
 }
 .line-grid.transfer .line-row.opening-line,
 .line-grid.transfer .line-grid-head:has(+ .opening-line) {
-  grid-template-columns: minmax(220px, 1fr) minmax(120px, 0.4fr) minmax(120px, 0.4fr) auto;
+  grid-template-columns: minmax(220px, 1fr) minmax(120px, 0.4fr) auto;
 }
 .line-grid-head {
   color: var(--muted);

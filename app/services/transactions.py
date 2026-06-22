@@ -159,11 +159,31 @@ def _void_reference(reference, record_id):
     return f"{base[: max(1, 80 - len(suffix))]}{suffix}"
 
 
+def _default_stock_book(company_id, book_type=None):
+    query = StockBook.query.filter_by(company_id=company_id, active=True)
+    if book_type:
+        stock_book = query.filter_by(book_type=book_type).order_by(StockBook.code).first()
+        if stock_book:
+            return stock_book
+        raise ValueError(f"No active {book_type} stock book found for this company.")
+    stock_book = query.filter_by(book_type="GST").order_by(StockBook.code).first()
+    if stock_book:
+        return stock_book
+    stock_book = query.order_by(StockBook.code).first()
+    if not stock_book:
+        raise ValueError("No active stock book found for this company.")
+    return stock_book
+
+
 def create_opening_stock(data, lines, user):
     company = db.session.get(Company, int(data.get("company_id") or 0))
-    stock_book = db.session.get(StockBook, int(data.get("stock_book_id") or 0))
     if not company or not company.active:
         raise ValueError("Company is required.")
+    stock_book = (
+        db.session.get(StockBook, int(data.get("stock_book_id") or 0))
+        if data.get("stock_book_id")
+        else _default_stock_book(company.id)
+    )
     if not stock_book or not stock_book.active:
         raise ValueError("Stock book is required.")
     if stock_book.company_id != company.id:
@@ -185,9 +205,9 @@ def create_opening_stock(data, lines, user):
     for row in _clean_lines(lines):
         item = active_item(row.get("item_id"))
         quantity = positive_qty(row.get("quantity"))
-        rate = Decimal(row.get("rate"))
-        if rate <= Decimal("0"):
-            raise ValueError("Rate must be greater than zero.")
+        rate = Decimal(row.get("rate") or "0")
+        if rate < Decimal("0"):
+            raise ValueError("Rate cannot be negative.")
         line = OpeningStockLine(
             opening_stock_id=opening.id,
             item_id=item.id,
@@ -259,9 +279,9 @@ def create_purchase(data, lines, user):
     for row in _clean_lines(lines):
         item = active_item(row.get("item_id"))
         quantity = positive_qty(row.get("quantity"))
-        rate = Decimal(row.get("rate"))
-        if rate <= Decimal("0"):
-            raise ValueError("Rate must be greater than zero.")
+        rate = Decimal(row.get("rate") or "0")
+        if rate < Decimal("0"):
+            raise ValueError("Rate cannot be negative.")
         gst_percent = Decimal(row.get("gst_percent") or item.gst_percent or 0)
         subtotal, gst_amount, line_total = _line_total(quantity, rate, gst_percent, taxable)
         line = PurchaseLine(
@@ -1288,9 +1308,19 @@ def create_transfer(data, lines, user):
 
 
 def create_opening_pending_stock(data, lines, user):
+    from_company_id = int(data.get("from_company_id") or 0)
+    to_company_id = int(data.get("to_company_id") or 0)
+    from_stock_book_id = data.get("from_stock_book_id")
+    to_stock_book_id = data.get("to_stock_book_id")
+    if not from_stock_book_id and from_company_id:
+        from_stock_book_id = _default_stock_book(from_company_id).id
+    if not to_stock_book_id and to_company_id:
+        to_stock_book_id = _default_stock_book(to_company_id).id
     from_company, to_company, from_book, to_book, reference, transfer_date = _validate_transfer_parties(
         {
             **data,
+            "from_stock_book_id": from_stock_book_id,
+            "to_stock_book_id": to_stock_book_id,
             "mismatch_approved": data.get("mismatch_approved") or "1",
         }
     )
@@ -1572,8 +1602,14 @@ def void_opening_stock(opening, user):
 
 
 def create_opening_receivable(data, user):
+    company = db.session.get(Company, int(data.get("company_id") or 0))
+    if not company or not company.active:
+        raise ValueError("Company is required.")
+    stock_book_id = data.get("stock_book_id") or _default_stock_book(
+        company.id, data.get("sale_type") or "GST"
+    ).id
     company, stock_book = validate_company_book(
-        data.get("company_id"), data.get("stock_book_id"), data.get("sale_type"), "sale"
+        company.id, stock_book_id, data.get("sale_type"), "sale"
     )
     customer = active_customer(data.get("customer_id"))
     amount = positive_money(data.get("pending_amount"), "Pending amount")
@@ -1607,8 +1643,14 @@ def create_opening_receivable(data, user):
 
 
 def create_opening_payable(data, user):
+    company = db.session.get(Company, int(data.get("company_id") or 0))
+    if not company or not company.active:
+        raise ValueError("Company is required.")
+    stock_book_id = data.get("stock_book_id") or _default_stock_book(
+        company.id, data.get("purchase_type") or "GST"
+    ).id
     company, stock_book = validate_company_book(
-        data.get("company_id"), data.get("stock_book_id"), data.get("purchase_type"), "purchase"
+        company.id, stock_book_id, data.get("purchase_type"), "purchase"
     )
     supplier = active_supplier(data.get("supplier_id"))
     amount = positive_money(data.get("pending_amount"), "Pending amount")

@@ -21,7 +21,7 @@ class Config:
     ADMIN_NAME = os.getenv("ADMIN_NAME", "FAstockFlow Admin")
     ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "admin@fastockflow.local")
     ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "ChangeMe123!")
-    STATIC_ASSET_VERSION = os.getenv("STATIC_ASSET_VERSION", "20260620-2")
+    STATIC_ASSET_VERSION = os.getenv("STATIC_ASSET_VERSION", "20260622-1")
     WTF_CSRF_TIME_LIMIT = None
 
 

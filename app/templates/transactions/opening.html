@@ -8,7 +8,6 @@
       <form method="post" action="{{ url_for('transactions.opening_save', section='stock') }}" class="form-grid wide">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label>Company <select name="company_id" required>{% for company in companies %}<option value="{{ company.id }}">{{ company.code }} - {{ company.name }}</option>{% endfor %}</select></label>
-        <label>Stock book <select name="stock_book_id" required>{% for book in stock_books %}<option value="{{ book.id }}" data-company-id="{{ book.company_id }}" data-book-type="{{ book.book_type }}">{{ book.code }} - {{ book.name }}</option>{% endfor %}</select></label>
         <label>Reference <span class="input-action"><input id="opening_ref" name="reference_number" required><button type="button" data-auto-ref="opening_stock" data-target="#opening_ref">Auto</button></span></label>
         <label>Opening date <input name="opening_date" type="date" required></label>
         <label class="full-span">Remarks <textarea name="remarks"></textarea></label>
@@ -23,9 +22,7 @@
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="mismatch_approved" value="1">
         <label>Owner company <select name="from_company_id" required>{% for company in companies %}<option value="{{ company.id }}" {% if company.code == 'FML' %}selected{% endif %}>{{ company.code }} - {{ company.name }}</option>{% endfor %}</select></label>
-        <label>Owner stock book <select name="from_stock_book_id" required>{% for book in stock_books %}<option value="{{ book.id }}" data-company-id="{{ book.company_id }}" data-book-type="{{ book.book_type }}" {% if book.code == 'FML_GST' %}selected{% endif %}>{{ book.code }} - {{ book.name }}</option>{% endfor %}</select></label>
         <label>Pending with <select name="to_company_id" required>{% for company in companies %}<option value="{{ company.id }}" {% if company.code == 'AI' %}selected{% endif %}>{{ company.code }} - {{ company.name }}</option>{% endfor %}</select></label>
-        <label>User stock book <select name="to_stock_book_id" required>{% for book in stock_books %}<option value="{{ book.id }}" data-company-id="{{ book.company_id }}" data-book-type="{{ book.book_type }}" {% if book.code == 'AI_GST' %}selected{% endif %}>{{ book.code }} - {{ book.name }}</option>{% endfor %}</select></label>
         <label>Reference <span class="input-action"><input id="opening_pending_ref" name="reference_number" required><button type="button" data-auto-ref="transfer" data-target="#opening_pending_ref">Auto</button></span></label>
         <label>Opening date <input name="transfer_date" type="date" required></label>
         <label class="full-span">Remarks <textarea name="remarks"></textarea></label>
@@ -39,7 +36,6 @@
       <form method="post" action="{{ url_for('transactions.opening_save', section='receivable') }}" class="form-grid wide">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label>Company <select name="company_id" required>{% for company in companies %}<option value="{{ company.id }}">{{ company.code }} - {{ company.name }}</option>{% endfor %}</select></label>
-        <label>Stock book <select name="stock_book_id" required>{% for book in stock_books %}<option value="{{ book.id }}" data-company-id="{{ book.company_id }}" data-book-type="{{ book.book_type }}">{{ book.code }} - {{ book.name }}</option>{% endfor %}</select></label>
         <label>Customer <select name="customer_id" required>{% for customer in customers %}<option value="{{ customer.id }}">{{ customer.code }} - {{ customer.name }}</option>{% endfor %}</select></label>
         <label>Sale type <select name="sale_type"><option value="GST">GST</option><option value="CASH">CASH</option></select></label>
         <label>Old invoice/ref <input name="reference_number" required></label>
@@ -56,7 +52,6 @@
       <form method="post" action="{{ url_for('transactions.opening_save', section='payable') }}" class="form-grid wide">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label>Company <select name="company_id" required>{% for company in companies %}<option value="{{ company.id }}">{{ company.code }} - {{ company.name }}</option>{% endfor %}</select></label>
-        <label>Stock book <select name="stock_book_id" required>{% for book in stock_books %}<option value="{{ book.id }}" data-company-id="{{ book.company_id }}" data-book-type="{{ book.book_type }}">{{ book.code }} - {{ book.name }}</option>{% endfor %}</select></label>
         <label>Supplier <select name="supplier_id" required>{% for supplier in suppliers %}<option value="{{ supplier.id }}">{{ supplier.code }} - {{ supplier.name }}</option>{% endfor %}</select></label>
         <label>Purchase type <select name="purchase_type"><option value="GST">GST</option><option value="CASH">CASH</option></select></label>
         <label>Old bill/ref <input name="reference_number" required></label>
