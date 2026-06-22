@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 
-from app.core.formatting import money, payment_status, positive_money, positive_qty, qty
+from app.core.formatting import dec, money, payment_status, positive_money, positive_qty, qty
 from app.extensions import db
 from app.models import (
     Company,
@@ -175,6 +175,13 @@ def _default_stock_book(company_id, book_type=None):
     return stock_book
 
 
+def _optional_opening_rate(value):
+    rate = dec(value or "0")
+    if rate < Decimal("0"):
+        raise ValueError("Rate cannot be negative.")
+    return rate
+
+
 def create_opening_stock(data, lines, user):
     company = db.session.get(Company, int(data.get("company_id") or 0))
     if not company or not company.active:
@@ -205,9 +212,7 @@ def create_opening_stock(data, lines, user):
     for row in _clean_lines(lines):
         item = active_item(row.get("item_id"))
         quantity = positive_qty(row.get("quantity"))
-        rate = Decimal(row.get("rate") or "0")
-        if rate < Decimal("0"):
-            raise ValueError("Rate cannot be negative.")
+        rate = _optional_opening_rate(row.get("rate"))
         line = OpeningStockLine(
             opening_stock_id=opening.id,
             item_id=item.id,
@@ -1345,9 +1350,7 @@ def create_opening_pending_stock(data, lines, user):
     for row in _clean_lines(lines):
         item = active_item(row.get("item_id"))
         quantity = positive_qty(row.get("quantity"))
-        rate = Decimal(row.get("rate"))
-        if rate <= Decimal("0"):
-            raise ValueError("Rate must be greater than zero.")
+        rate = _optional_opening_rate(row.get("rate"))
         line_value = money(quantity * rate)
         line = TransferLine(
             transfer_id=transfer.id,
