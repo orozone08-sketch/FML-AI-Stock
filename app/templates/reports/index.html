@@ -4,7 +4,7 @@
 {% block content %}
   <section class="report-grid">
     {% for slug, title in reports.items() %}
-      <a class="report-card" href="{{ url_for('reports.show', name=slug) }}">
+      <a class="report-card" href="{{ url_for('reports.customer_ledger') if slug == 'customer-ledger' else url_for('reports.show', name=slug) }}">
         <strong>{{ title }}</strong>
         <span>Open report</span>
       </a>

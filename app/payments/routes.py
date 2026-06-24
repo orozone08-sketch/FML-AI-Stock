@@ -7,6 +7,7 @@ from app.core.security import require_permission
 from app.extensions import db
 from app.models import Company, Customer, Payable, Payment, PaymentMode, Receivable, Supplier
 from app.services.entry_exports import export_entry, payment_rows
+from app.services.outstanding import grouped_party_outstanding
 from app.services.payments import create_customer_receipt, create_supplier_payment
 
 bp = Blueprint("payments", __name__, url_prefix="/finance")
@@ -132,8 +133,10 @@ def outstanding():
                 Supplier.name.ilike(pattern),
             )
         )
-    receivables = receivables.order_by(Receivable.due_date, Receivable.document_date).all()
-    payables = payables.order_by(Payable.due_date, Payable.document_date).all()
+    receivable_entries = receivables.order_by(Receivable.due_date, Receivable.document_date).all()
+    payable_entries = payables.order_by(Payable.due_date, Payable.document_date).all()
+    receivables = grouped_party_outstanding(receivable_entries, "customer")
+    payables = grouped_party_outstanding(payable_entries, "supplier")
     advances = Payment.query.filter(Payment.unallocated_amount > 0)
     companies = Company.query.filter_by(active=True)
     if company:
@@ -156,8 +159,8 @@ def outstanding():
         )
     advances = advances.order_by(Payment.payment_date.desc()).all()
     summary = {
-        "receivable_balance": money(sum((row.balance_amount for row in receivables), 0)),
-        "payable_balance": money(sum((row.balance_amount for row in payables), 0)),
+        "receivable_balance": money(sum((row["balance"] for row in receivables), 0)),
+        "payable_balance": money(sum((row["balance"] for row in payables), 0)),
         "advance_unallocated": money(sum((row.unallocated_amount for row in advances), 0)),
         "receivable_count": len(receivables),
         "payable_count": len(payables),

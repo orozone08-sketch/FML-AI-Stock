@@ -321,8 +321,8 @@ function updateOutstandingSummary() {
     if (value) value.textContent = formatPreviewMoney(total);
     if (small) {
       const labels = [
-        ["receivable", "receivables"],
-        ["payable", "payables"],
+        ["customer", "customers"],
+        ["supplier", "suppliers"],
         ["advance", "advances"],
       ][index] || ["entry", "entries"];
       small.textContent = formatCountLabel(visibleRows.length, labels[0], labels[1]);

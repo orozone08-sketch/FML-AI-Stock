@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block page_title %}{{ customer.name }} Ledger{% endblock %}
+{% block page_subtitle %}{{ company.name }} · {{ detail.month_label }} date-wise debit and credit vouchers.{% endblock %}
+{% block content %}
+  <section class="panel">
+    <form class="toolbar" method="get">
+      <a class="secondary-button" href="{{ url_for('reports.customer_ledger', company_id=company.id, customer_id=customer.id) }}">Monthly summary</a>
+      <input type="hidden" name="company_id" value="{{ company.id }}">
+      <input type="hidden" name="customer_id" value="{{ customer.id }}">
+      <input type="hidden" name="month" value="{{ detail.month }}">
+      <span class="spacer"></span>
+      <a class="secondary-button" href="{{ url_for('reports.customer_ledger_detail', company_id=company.id, customer_id=customer.id, month=detail.month, format='csv') }}">CSV</a>
+      <a class="secondary-button" href="{{ url_for('reports.customer_ledger_detail', company_id=company.id, customer_id=customer.id, month=detail.month, format='xlsx') }}">XLSX</a>
+      <a class="secondary-button" href="{{ url_for('reports.customer_ledger_detail', company_id=company.id, customer_id=customer.id, month=detail.month, format='pdf') }}">PDF</a>
+    </form>
+  </section>
+
+  <section class="metric-grid">
+    <article class="metric-card">
+      <span>Opening Balance</span>
+      <strong>{{ fmt_money(detail.opening) }}</strong>
+      <small>Before {{ detail.month_label }}</small>
+    </article>
+    <article class="metric-card">
+      <span>Bills</span>
+      <strong>{{ detail.bills }}</strong>
+      <small>Debit vouchers this month</small>
+    </article>
+    <article class="metric-card">
+      <span>Debit</span>
+      <strong>{{ fmt_money(detail.debit) }}</strong>
+      <small>Month total</small>
+    </article>
+    <article class="metric-card amber">
+      <span>Credit</span>
+      <strong>{{ fmt_money(detail.credit) }}</strong>
+      <small>Receipts and advances</small>
+    </article>
+    <article class="metric-card">
+      <span>Closing Balance</span>
+      <strong>{{ fmt_money(detail.closing) }}</strong>
+      <small>After {{ detail.month_label }}</small>
+    </article>
+  </section>
+
+  <section class="panel">
+    <div class="panel-title">
+      <h2>Date-wise Vouchers</h2>
+      <span class="muted-copy">{{ detail.month_label }}</span>
+    </div>
+    <div class="table-wrap tall">
+      <table>
+        <thead>
+          <tr><th>Date</th><th>Particulars</th><th>Voucher Type</th><th>Voucher No.</th><th>Debit</th><th>Credit</th><th>Balance</th></tr>
+        </thead>
+        <tbody>
+          <tr><td></td><td>Opening Balance</td><td></td><td></td><td></td><td></td><td>{{ fmt_money(detail.opening) }}</td></tr>
+          {% for row in detail.rows %}
+            <tr>
+              <td>{{ row.date }}</td>
+              <td>{{ row.particulars }}</td>
+              <td>{{ row.voucher_type }}</td>
+              <td>{{ row.voucher_no }}</td>
+              <td>{{ fmt_money(row.debit) if row.debit else '' }}</td>
+              <td>{{ fmt_money(row.credit) if row.credit else '' }}</td>
+              <td>{{ fmt_money(row.balance) }}</td>
+            </tr>
+          {% endfor %}
+          <tr><td></td><td><strong>Closing Balance</strong></td><td></td><td></td><td></td><td></td><td><strong>{{ fmt_money(detail.closing) }}</strong></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+{% endblock %}

@@ -30,12 +30,12 @@
     <article class="metric-card" data-summary-table="receivables" data-summary-column="7">
       <span>Customer Balance</span>
       <strong>{{ fmt_money(summary.receivable_balance) }}</strong>
-      <small>{{ summary.receivable_count }} receivable{{ '' if summary.receivable_count == 1 else 's' }}</small>
+      <small>{{ summary.receivable_count }} customer{{ '' if summary.receivable_count == 1 else 's' }}</small>
     </article>
     <article class="metric-card amber" data-summary-table="payables" data-summary-column="7">
       <span>Supplier Balance</span>
       <strong>{{ fmt_money(summary.payable_balance) }}</strong>
-      <small>{{ summary.payable_count }} payable{{ '' if summary.payable_count == 1 else 's' }}</small>
+      <small>{{ summary.payable_count }} supplier{{ '' if summary.payable_count == 1 else 's' }}</small>
     </article>
     <article class="metric-card" data-summary-table="advances" data-summary-column="6">
       <span>Open Advances</span>
@@ -46,16 +46,16 @@
   <section class="panel">
     <div class="panel-title"><h2>Customer Outstanding</h2><a href="{{ url_for('reports.show', name='customer-outstanding') }}">Export report</a></div>
     <div class="table-wrap"><table>
-      <thead><tr><th>Company</th><th>Customer</th><th>Document</th><th>Date</th><th>Due</th><th>Total</th><th>Paid</th><th>Balance</th><th>Status</th></tr></thead>
-      <tbody>{% for row in receivables %}<tr><td>{{ row.company.code }}</td><td>{{ row.customer.name if row.customer else row.counterparty_company.name }}</td><td>{{ row.document_number }}</td><td>{{ row.document_date }}</td><td>{{ row.due_date or '' }}</td><td>{{ fmt_money(row.total_amount) }}</td><td>{{ fmt_money(row.paid_amount) }}</td><td>{{ fmt_money(row.balance_amount) }}</td><td>{{ row.payment_status }}</td></tr>{% else %}<tr><td colspan="9" class="empty">No receivables.</td></tr>{% endfor %}</tbody>
+      <thead><tr><th>Company</th><th>Customer</th><th>Documents</th><th>First date</th><th>Next due</th><th>Total</th><th>Paid</th><th>Balance</th><th>Status</th></tr></thead>
+      <tbody>{% for row in receivables %}<tr><td>{{ row.company }}</td><td>{{ row.party }}</td><td>{{ row.documents_label }}</td><td>{{ row.date }}</td><td>{{ row.due_date or '' }}</td><td>{{ fmt_money(row.total) }}</td><td>{{ fmt_money(row.paid) }}</td><td>{{ fmt_money(row.balance) }}</td><td>{{ row.status }}</td></tr>{% else %}<tr><td colspan="9" class="empty">No receivables.</td></tr>{% endfor %}</tbody>
     </table></div>
   </section>
 
   <section class="panel">
     <div class="panel-title"><h2>Supplier Outstanding</h2><a href="{{ url_for('reports.show', name='supplier-outstanding') }}">Export report</a></div>
     <div class="table-wrap"><table>
-      <thead><tr><th>Company</th><th>Supplier</th><th>Document</th><th>Date</th><th>Due</th><th>Total</th><th>Paid</th><th>Balance</th><th>Status</th></tr></thead>
-      <tbody>{% for row in payables %}<tr><td>{{ row.company.code }}</td><td>{{ row.supplier.name if row.supplier else row.counterparty_company.name }}</td><td>{{ row.document_number }}</td><td>{{ row.document_date }}</td><td>{{ row.due_date or '' }}</td><td>{{ fmt_money(row.total_amount) }}</td><td>{{ fmt_money(row.paid_amount) }}</td><td>{{ fmt_money(row.balance_amount) }}</td><td>{{ row.payment_status }}</td></tr>{% else %}<tr><td colspan="9" class="empty">No payables.</td></tr>{% endfor %}</tbody>
+      <thead><tr><th>Company</th><th>Supplier</th><th>Documents</th><th>First date</th><th>Next due</th><th>Total</th><th>Paid</th><th>Balance</th><th>Status</th></tr></thead>
+      <tbody>{% for row in payables %}<tr><td>{{ row.company }}</td><td>{{ row.party }}</td><td>{{ row.documents_label }}</td><td>{{ row.date }}</td><td>{{ row.due_date or '' }}</td><td>{{ fmt_money(row.total) }}</td><td>{{ fmt_money(row.paid) }}</td><td>{{ fmt_money(row.balance) }}</td><td>{{ row.status }}</td></tr>{% else %}<tr><td colspan="9" class="empty">No payables.</td></tr>{% endfor %}</tbody>
     </table></div>
   </section>
 

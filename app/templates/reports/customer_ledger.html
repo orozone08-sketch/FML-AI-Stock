@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block page_title %}Customer Ledger{% endblock %}
+{% block page_subtitle %}Month-wise customer bills, debit, credit, and closing balance with date-wise drilldown.{% endblock %}
+{% block content %}
+  <section class="panel">
+    <form class="toolbar" method="get" data-live-search-form>
+      <a class="secondary-button" href="{{ url_for('reports.index') }}">All reports</a>
+      <select name="company_id" {% if active_company %}disabled{% endif %}>
+        {% if not active_company %}<option value="">All companies</option>{% endif %}
+        {% for company in companies %}
+          <option value="{{ company.id }}" {% if selected_company_id == company.id %}selected{% endif %}>{{ company.code }} - {{ company.name }}</option>
+        {% endfor %}
+      </select>
+      {% if active_company %}<input type="hidden" name="company_id" value="{{ active_company.id }}">{% endif %}
+      <select name="customer_id">
+        <option value="">All customers</option>
+        {% for customer in customers %}
+          <option value="{{ customer.id }}" {% if selected_customer_id == customer.id %}selected{% endif %}>{{ customer.code }} - {{ customer.name }}</option>
+        {% endfor %}
+      </select>
+      <input name="q" placeholder="Search customer/month" value="{{ request.args.get('q','') }}" autocomplete="off" data-live-search data-live-target="#customer_ledger_table">
+      <button class="secondary-button" type="submit" data-live-find>Find</button>
+      <span class="spacer"></span>
+      <a class="secondary-button" href="{{ url_for('reports.customer_ledger', company_id=selected_company_id or '', customer_id=selected_customer_id or '', format='csv') }}">CSV</a>
+      <a class="secondary-button" href="{{ url_for('reports.customer_ledger', company_id=selected_company_id or '', customer_id=selected_customer_id or '', format='xlsx') }}">XLSX</a>
+      <a class="secondary-button" href="{{ url_for('reports.customer_ledger', company_id=selected_company_id or '', customer_id=selected_customer_id or '', format='pdf') }}">PDF</a>
+    </form>
+  </section>
+
+  <section class="metric-grid">
+    <article class="metric-card">
+      <span>Customers</span>
+      <strong>{{ metrics.customers }}</strong>
+      <small>With ledger movement</small>
+    </article>
+    <article class="metric-card">
+      <span>Bills</span>
+      <strong>{{ metrics.bills }}</strong>
+      <small>Receivable vouchers</small>
+    </article>
+    <article class="metric-card">
+      <span>Debit</span>
+      <strong>{{ fmt_money(metrics.debit) }}</strong>
+      <small>Sales and opening receivables</small>
+    </article>
+    <article class="metric-card amber">
+      <span>Credit</span>
+      <strong>{{ fmt_money(metrics.credit) }}</strong>
+      <small>Receipts and advances</small>
+    </article>
+    <article class="metric-card">
+      <span>Current Balance</span>
+      <strong>{{ fmt_money(metrics.balance) }}</strong>
+      <small>Debit minus credit</small>
+    </article>
+  </section>
+
+  <section class="panel">
+    <div class="panel-title">
+      <h2>Monthly Customer Summary</h2>
+      <span class="muted-copy">Click a month to see date-wise bills and receipts.</span>
+    </div>
+    <div class="table-wrap tall">
+      <table id="customer_ledger_table">
+        <thead>
+          <tr><th>Company</th><th>Customer</th><th>Month</th><th>Bills</th><th>Debit</th><th>Credit</th><th>Closing Balance</th></tr>
+        </thead>
+        <tbody>
+          {% for row in summary %}
+            <tr>
+              <td>{{ row.company }}</td>
+              <td>{{ row.customer }}</td>
+              <td><a class="table-action" href="{{ url_for('reports.customer_ledger_detail', company_id=row.company_id, customer_id=row.customer_id, month=row.month_key) }}">{{ row.month }}</a></td>
+              <td>{{ row.bills }}</td>
+              <td>{{ fmt_money(row.debit) }}</td>
+              <td>{{ fmt_money(row.credit) }}</td>
+              <td>{{ fmt_money(row.closing) }}</td>
+            </tr>
+          {% else %}
+            <tr><td colspan="7" class="empty">No customer ledger rows.</td></tr>
+          {% endfor %}
+          <tr class="empty live-empty" data-live-empty hidden><td colspan="7">No matching rows.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+{% endblock %}

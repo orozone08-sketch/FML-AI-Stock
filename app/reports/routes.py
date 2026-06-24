@@ -1,7 +1,7 @@
 from datetime import date
 from decimal import Decimal
 
-from flask import Blueprint, flash, redirect, render_template, request, url_for
+from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
 from flask_login import login_required
 
 from app.core.company_context import active_company
@@ -11,6 +11,7 @@ from app.extensions import db
 from app.models import (
     AuditLog,
     Company,
+    Customer,
     FIFOLayer,
     Item,
     Payable,
@@ -25,6 +26,13 @@ from app.models import (
     User,
 )
 from app.reports.exporting import export_table
+from app.services.customer_ledger import (
+    customer_ledger_entries,
+    ledger_detail,
+    ledger_metrics,
+    monthly_customer_summary,
+)
+from app.services.outstanding import grouped_party_outstanding
 from app.services.stock import available_quantity, available_value
 from app.services.transactions import pending_transfer_summary
 
@@ -39,6 +47,7 @@ REPORT_TITLES = {
     "purchases": "Purchase Report",
     "sales": "Sales Report",
     "sales-by-type": "Sales by Company and Type",
+    "customer-ledger": "Customer Ledger",
     "gross-profit": "Gross Profit Report",
     "customer-outstanding": "Customer Outstanding",
     "supplier-outstanding": "Supplier Outstanding",
@@ -111,6 +120,135 @@ def report_totals(headers, rows):
 @require_permission("reports", "view")
 def index():
     return render_template("reports/index.html", reports=REPORT_TITLES)
+
+
+def int_arg(name):
+    value = request.args.get(name)
+    if not value:
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
+def selected_report_company_id():
+    company = active_company()
+    if company:
+        return company.id
+    return int_arg("company_id")
+
+
+def customer_ledger_filters():
+    company = active_company()
+    companies = Company.query.filter_by(active=True)
+    if company:
+        companies = companies.filter(Company.id == company.id)
+    return {
+        "companies": companies.order_by(Company.code).all(),
+        "customers": Customer.query.filter_by(active=True).order_by(Customer.code).all(),
+        "selected_company_id": selected_report_company_id(),
+        "selected_customer_id": int_arg("customer_id"),
+    }
+
+
+def customer_ledger_summary_rows(summary):
+    return [
+        [
+            row["company"],
+            row["customer"],
+            row["month"],
+            row["bills"],
+            fmt_money(row["debit"]),
+            fmt_money(row["credit"]),
+            fmt_money(row["closing"]),
+        ]
+        for row in summary
+    ]
+
+
+def customer_ledger_detail_rows(detail):
+    rows = [["", "Opening Balance", "", "", "", "", fmt_money(detail["opening"])]]
+    for row in detail["rows"]:
+        rows.append(
+            [
+                row["date"],
+                row["particulars"],
+                row["voucher_type"],
+                row["voucher_no"],
+                fmt_money(row["debit"]),
+                fmt_money(row["credit"]),
+                fmt_money(row["balance"]),
+            ]
+        )
+    rows.append(["", "Closing Balance", "", "", "", "", fmt_money(detail["closing"])])
+    return rows
+
+
+@bp.route("/customer-ledger")
+@login_required
+@require_permission("reports", "view")
+def customer_ledger():
+    filters = customer_ledger_filters()
+    entries = customer_ledger_entries(filters["selected_company_id"], filters["selected_customer_id"])
+    summary = monthly_customer_summary(entries)
+    metrics = ledger_metrics(entries)
+    export_format = request.args.get("format")
+    if export_format:
+        require_permission("reports", "export")(lambda: None)()
+        headers = ["Company", "Customer", "Month", "Bills", "Debit", "Credit", "Closing balance"]
+        return export_table("Customer Ledger", headers, customer_ledger_summary_rows(summary), export_format)
+    return render_template(
+        "reports/customer_ledger.html",
+        summary=summary,
+        metrics=metrics,
+        **filters,
+    )
+
+
+@bp.route("/customer-ledger/detail")
+@login_required
+@require_permission("reports", "view")
+def customer_ledger_detail():
+    company_id = selected_report_company_id()
+    customer_id = int_arg("customer_id")
+    month = request.args.get("month") or ""
+    active = active_company()
+    if active and company_id != active.id:
+        abort(403)
+    if not company_id or not customer_id or len(month) != 7:
+        flash("Select a valid customer ledger month.", "danger")
+        return redirect(url_for("reports.customer_ledger"))
+    try:
+        entries = customer_ledger_entries(company_id, customer_id)
+        detail = ledger_detail(entries, company_id, customer_id, month)
+    except ValueError:
+        flash("Select a valid customer ledger month.", "danger")
+        return redirect(url_for("reports.customer_ledger"))
+    if not detail["rows"]:
+        flash("No ledger entries found for that month.", "warning")
+        return redirect(url_for("reports.customer_ledger", company_id=company_id, customer_id=customer_id))
+    company = db.session.get(Company, company_id)
+    customer = db.session.get(Customer, customer_id)
+    if not company or not customer:
+        flash("Customer ledger selection was not found.", "danger")
+        return redirect(url_for("reports.customer_ledger"))
+    export_format = request.args.get("format")
+    if export_format:
+        require_permission("reports", "export")(lambda: None)()
+        headers = ["Date", "Particulars", "Voucher type", "Voucher no", "Debit", "Credit", "Balance"]
+        return export_table(
+            f"{customer.name} Ledger {detail['month_label']}",
+            headers,
+            customer_ledger_detail_rows(detail),
+            export_format,
+        )
+    return render_template(
+        "reports/customer_ledger_detail.html",
+        company=company,
+        customer=customer,
+        detail=detail,
+    )
 
 
 @bp.route("/<name>")
@@ -316,23 +454,6 @@ def gross_profit_rows():
     return headers, rows
 
 
-def outstanding_status(total, paid, balance):
-    balance = money(balance)
-    paid = money(paid)
-    if balance <= Decimal("0.00"):
-        return "PAID"
-    if paid > Decimal("0.00"):
-        return "PARTIAL"
-    return "UNPAID"
-
-
-def document_summary(documents):
-    documents = [document for document in documents if document]
-    if len(documents) == 1:
-        return documents[0]
-    return f"{len(documents)} documents"
-
-
 def created_by_summary(user_ids):
     names = {creator_name(user_id) for user_id in user_ids}
     if len(names) == 1:
@@ -340,53 +461,20 @@ def created_by_summary(user_ids):
     return "Multiple users"
 
 
-def grouped_outstanding_rows(query, party_kind):
-    model = Receivable if party_kind == "customer" else Payable
-    groups = {}
-    for entry in query.order_by(model.due_date, model.document_number).all():
-        if party_kind == "customer":
-            party = entry.customer.name if entry.customer else entry.counterparty_company.name if entry.counterparty_company else ""
-            party_id = entry.customer_id or entry.counterparty_company_id
-        else:
-            party = entry.supplier.name if entry.supplier else entry.counterparty_company.name if entry.counterparty_company else ""
-            party_id = entry.supplier_id or entry.counterparty_company_id
-        key = (entry.company_id, party_kind, party_id, party)
-        group = groups.setdefault(
-            key,
-            {
-                "company": entry.company.code,
-                "party": party,
-                "documents": [],
-                "date": entry.document_date,
-                "due_date": entry.due_date,
-                "total": Decimal("0.00"),
-                "paid": Decimal("0.00"),
-                "balance": Decimal("0.00"),
-                "created_by": set(),
-            },
-        )
-        group["documents"].append(entry.document_number)
-        group["date"] = min(group["date"], entry.document_date)
-        if entry.due_date and (not group["due_date"] or entry.due_date < group["due_date"]):
-            group["due_date"] = entry.due_date
-        group["total"] = money(group["total"] + entry.total_amount)
-        group["paid"] = money(group["paid"] + entry.paid_amount)
-        group["balance"] = money(group["balance"] + entry.balance_amount)
-        group["created_by"].add(entry.created_by_id)
-
+def format_grouped_outstanding_rows(entries, party_kind):
     rows = []
-    for group in sorted(groups.values(), key=lambda item: (item["due_date"] or date.max, item["party"])):
+    for group in grouped_party_outstanding(entries, party_kind):
         rows.append([
             group["company"],
             group["party"],
-            document_summary(group["documents"]),
+            group["documents_label"],
             group["date"],
             group["due_date"] or "",
             fmt_money(group["total"]),
             fmt_money(group["paid"]),
             fmt_money(group["balance"]),
-            outstanding_status(group["total"], group["paid"], group["balance"]),
-            created_by_summary(group["created_by"]),
+            group["status"],
+            created_by_summary(group["created_by_ids"]),
         ])
     return rows
 
@@ -394,13 +482,15 @@ def grouped_outstanding_rows(query, party_kind):
 def customer_outstanding_rows():
     headers = ["Company", "Customer", "Documents", "First date", "Next due", "Total", "Paid", "Balance", "Status", "Created by"]
     query = scope_query_to_active_company(Receivable.query, Receivable.company_id)
-    return headers, grouped_outstanding_rows(query, "customer")
+    entries = query.order_by(Receivable.due_date, Receivable.document_number).all()
+    return headers, format_grouped_outstanding_rows(entries, "customer")
 
 
 def supplier_outstanding_rows():
     headers = ["Company", "Supplier", "Documents", "First date", "Next due", "Total", "Paid", "Balance", "Status", "Created by"]
     query = scope_query_to_active_company(Payable.query, Payable.company_id)
-    return headers, grouped_outstanding_rows(query, "supplier")
+    entries = query.order_by(Payable.due_date, Payable.document_number).all()
+    return headers, format_grouped_outstanding_rows(entries, "supplier")
 
 
 def advances_rows():
