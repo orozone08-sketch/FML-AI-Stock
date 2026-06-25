@@ -80,6 +80,82 @@ def allocate_to_payable(payment, payable, amount):
     return allocation
 
 
+def allocate_remaining_receivables(payment, amount, exclude_ids=None):
+    remaining = money(amount)
+    exclude_ids = set(exclude_ids or [])
+    if remaining <= Decimal("0.00") or not payment.customer_id:
+        return Decimal("0.00")
+    allocated = Decimal("0.00")
+    query = (
+        Receivable.query.filter(
+            Receivable.company_id == payment.company_id,
+            Receivable.customer_id == payment.customer_id,
+            Receivable.balance_amount > 0,
+        )
+        .order_by(Receivable.due_date, Receivable.document_date, Receivable.id)
+    )
+    for receivable in query.all():
+        if receivable.id in exclude_ids:
+            continue
+        applied = allocate_to_receivable(payment, receivable, remaining)
+        allocated = money(allocated + applied)
+        remaining = money(remaining - applied)
+        if remaining <= Decimal("0.00"):
+            break
+    return allocated
+
+
+def allocate_remaining_payables(payment, amount, exclude_ids=None):
+    remaining = money(amount)
+    exclude_ids = set(exclude_ids or [])
+    if remaining <= Decimal("0.00") or not payment.supplier_id:
+        return Decimal("0.00")
+    allocated = Decimal("0.00")
+    query = (
+        Payable.query.filter(
+            Payable.company_id == payment.company_id,
+            Payable.supplier_id == payment.supplier_id,
+            Payable.balance_amount > 0,
+        )
+        .order_by(Payable.due_date, Payable.document_date, Payable.id)
+    )
+    for payable in query.all():
+        if payable.id in exclude_ids:
+            continue
+        applied = allocate_to_payable(payment, payable, remaining)
+        allocated = money(allocated + applied)
+        remaining = money(remaining - applied)
+        if remaining <= Decimal("0.00"):
+            break
+    return allocated
+
+
+def allocate_customer_receipt(payment, receivable_id):
+    if not receivable_id:
+        return Decimal("0.00")
+    receivable = db.session.get(Receivable, int(receivable_id))
+    if not receivable:
+        raise ValueError("Selected invoice was not found.")
+    first_allocation = allocate_to_receivable(payment, receivable, payment.unallocated_amount)
+    remaining = money(payment.unallocated_amount)
+    if remaining > Decimal("0.00"):
+        allocate_remaining_receivables(payment, remaining, exclude_ids={receivable.id})
+    return first_allocation
+
+
+def allocate_supplier_payment(payment, payable_id):
+    if not payable_id:
+        return Decimal("0.00")
+    payable = db.session.get(Payable, int(payable_id))
+    if not payable:
+        raise ValueError("Selected bill was not found.")
+    first_allocation = allocate_to_payable(payment, payable, payment.unallocated_amount)
+    remaining = money(payment.unallocated_amount)
+    if remaining > Decimal("0.00"):
+        allocate_remaining_payables(payment, remaining, exclude_ids={payable.id})
+    return first_allocation
+
+
 def payment_snapshot(payment):
     return {
         "company_id": payment.company_id,
@@ -151,23 +227,13 @@ def update_payment(payment, data, user):
         payment.party_type = "CUSTOMER"
         payment.customer_id = customer.id
         payment.supplier_id = None
-        receivable_id = data.get("receivable_id")
-        if receivable_id:
-            receivable = db.session.get(Receivable, int(receivable_id))
-            if not receivable:
-                raise ValueError("Selected invoice was not found.")
-            allocate_to_receivable(payment, receivable, amount)
+        allocate_customer_receipt(payment, data.get("receivable_id"))
     else:
         supplier = active_supplier(data.get("supplier_id") or payment.supplier_id)
         payment.party_type = "SUPPLIER"
         payment.supplier_id = supplier.id
         payment.customer_id = None
-        payable_id = data.get("payable_id")
-        if payable_id:
-            payable = db.session.get(Payable, int(payable_id))
-            if not payable:
-                raise ValueError("Selected bill was not found.")
-            allocate_to_payable(payment, payable, amount)
+        allocate_supplier_payment(payment, data.get("payable_id"))
 
     audit("edit", "Payment", payment.id, payment.reference_number, before=before, after=payment_snapshot(payment), user=user)
     return payment
@@ -203,12 +269,7 @@ def create_customer_receipt(data, user):
     )
     db.session.add(payment)
     db.session.flush()
-    receivable_id = data.get("receivable_id")
-    if receivable_id:
-        receivable = db.session.get(Receivable, int(receivable_id))
-        if not receivable:
-            raise ValueError("Selected invoice was not found.")
-        allocate_to_receivable(payment, receivable, amount)
+    allocate_customer_receipt(payment, data.get("receivable_id"))
     audit(
         "create",
         "Payment",
@@ -240,12 +301,7 @@ def create_supplier_payment(data, user):
     )
     db.session.add(payment)
     db.session.flush()
-    payable_id = data.get("payable_id")
-    if payable_id:
-        payable = db.session.get(Payable, int(payable_id))
-        if not payable:
-            raise ValueError("Selected bill was not found.")
-        allocate_to_payable(payment, payable, amount)
+    allocate_supplier_payment(payment, data.get("payable_id"))
     audit(
         "create",
         "Payment",

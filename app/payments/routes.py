@@ -7,7 +7,7 @@ from app.core.security import can, require_permission
 from app.extensions import db
 from app.models import Company, Customer, Payable, Payment, PaymentMode, Receivable, Supplier
 from app.services.entry_exports import export_entry, payment_rows
-from app.services.outstanding import grouped_party_outstanding
+from app.services.outstanding import grouped_party_outstanding, outstanding_summary_from_rows
 from app.services.payments import create_customer_receipt, create_supplier_payment, delete_payment, update_payment
 
 bp = Blueprint("payments", __name__, url_prefix="/finance")
@@ -331,12 +331,7 @@ def outstanding_customer_detail(company_id, customer_id):
     if not company or not customer:
         abort(404)
     rows = receivable_detail_rows(company_id, customer_id)
-    summary = {
-        "total": money(sum((row["total"] for row in rows), 0)),
-        "paid": money(sum((row["paid"] for row in rows), 0)),
-        "balance": money(sum((row["balance"] for row in rows), 0)),
-        "count": len(rows),
-    }
+    summary = outstanding_summary_from_rows(rows, company_id, "customer", customer_id)
     return render_template(
         "payments/outstanding_detail.html",
         title="Customer Outstanding Details",
@@ -359,12 +354,7 @@ def outstanding_supplier_detail(company_id, supplier_id):
     if not company or not supplier:
         abort(404)
     rows = payable_detail_rows(company_id, supplier_id)
-    summary = {
-        "total": money(sum((row["total"] for row in rows), 0)),
-        "paid": money(sum((row["paid"] for row in rows), 0)),
-        "balance": money(sum((row["balance"] for row in rows), 0)),
-        "count": len(rows),
-    }
+    summary = outstanding_summary_from_rows(rows, company_id, "supplier", supplier_id)
     return render_template(
         "payments/outstanding_detail.html",
         title="Supplier Outstanding Details",

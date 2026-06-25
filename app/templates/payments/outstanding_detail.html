@@ -22,13 +22,20 @@
     <article class="metric-card amber">
       <span>Paid</span>
       <strong>{{ fmt_money(summary.paid) }}</strong>
-      <small>Amount received/paid</small>
+      <small>{% if summary.advance_offset %}Includes {{ fmt_money(summary.advance_offset) }} advance offset{% else %}Amount received/paid{% endif %}</small>
     </article>
     <article class="metric-card">
       <span>Balance</span>
       <strong>{{ fmt_money(summary.balance) }}</strong>
-      <small>Current outstanding</small>
+      <small>{% if summary.advance_offset %}Bill balance {{ fmt_money(summary.document_balance) }} before advances{% else %}Current outstanding{% endif %}</small>
     </article>
+    {% if summary.open_advance %}
+    <article class="metric-card">
+      <span>Open Advance</span>
+      <strong>{{ fmt_money(summary.open_advance) }}</strong>
+      <small>Remaining after bill offset</small>
+    </article>
+    {% endif %}
   </section>
 
   <section class="panel">

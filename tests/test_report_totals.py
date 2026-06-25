@@ -1,7 +1,7 @@
 from app.extensions import db
-from app.models import Receivable
+from app.models import Payment, Receivable
 from app.services.payments import create_customer_receipt
-from app.services.transactions import create_purchase, create_sale
+from app.services.transactions import create_opening_receivable, create_purchase, create_sale
 from tests.test_fifo_workflows import admin, ids
 from tests.test_navigation import login
 
@@ -149,6 +149,141 @@ def test_outstanding_customer_detail_shows_bill_dates_and_edit_links(client, app
     assert "2026-06-23" in html
     assert "2026-06-30" in html
     assert f"/transactions/sale/{sale_id}/edit" in html
+
+
+def test_customer_receipt_overage_allocates_next_open_bill(app):
+    with app.app_context():
+        data = ids()
+        opening = create_opening_receivable(
+            {
+                "company_id": data["ai"].id,
+                "customer_id": data["customer"].id,
+                "sale_type": "GST",
+                "reference_number": "AUTO-ALLOC-OPEN",
+                "pending_amount": "36000",
+            },
+            admin(),
+        )
+        create_sale(
+            {
+                "company_id": data["ai"].id,
+                "stock_book_id": data["ai_gst"].id,
+                "customer_id": data["customer"].id,
+                "sale_type": "GST",
+                "invoice_number": "AUTO-ALLOC-SALE",
+                "invoice_date": "2026-06-06",
+            },
+            [{"item_id": data["item"].id, "quantity": "1", "rate": "86000", "gst_percent": "0"}],
+            admin(),
+        )
+        sale_receivable = Receivable.query.filter_by(document_number="AUTO-ALLOC-SALE").one()
+        payment = create_customer_receipt(
+            {
+                "company_id": data["ai"].id,
+                "customer_id": data["customer"].id,
+                "receivable_id": opening.id,
+                "payment_date": "2026-06-23",
+                "amount": "50000",
+                "mode": "UPI",
+                "reference_number": "AUTO-ALLOC-PAY",
+            },
+            admin(),
+        )
+        db.session.commit()
+
+        assert payment.total_amount == 50000
+        assert payment.allocated_amount == 50000
+        assert payment.unallocated_amount == 0
+        assert opening.paid_amount == 36000
+        assert opening.balance_amount == 0
+        assert sale_receivable.paid_amount == 14000
+        assert sale_receivable.balance_amount == 72000
+
+
+def test_customer_outstanding_nets_unallocated_advance_against_balance(client, app):
+    with app.app_context():
+        data = ids()
+        opening = create_opening_receivable(
+            {
+                "company_id": data["ai"].id,
+                "customer_id": data["customer"].id,
+                "sale_type": "GST",
+                "reference_number": "NET-ADV-OPEN",
+                "pending_amount": "36000",
+            },
+            admin(),
+        )
+        create_sale(
+            {
+                "company_id": data["ai"].id,
+                "stock_book_id": data["ai_gst"].id,
+                "customer_id": data["customer"].id,
+                "sale_type": "GST",
+                "invoice_number": "NET-ADV-SALE",
+                "invoice_date": "2026-06-06",
+            },
+            [{"item_id": data["item"].id, "quantity": "1", "rate": "86000", "gst_percent": "0"}],
+            admin(),
+        )
+        sale_receivable = Receivable.query.filter_by(document_number="NET-ADV-SALE").one()
+        create_customer_receipt(
+            {
+                "company_id": data["ai"].id,
+                "customer_id": data["customer"].id,
+                "receivable_id": opening.id,
+                "payment_date": "2026-06-23",
+                "amount": "36000",
+                "mode": "UPI",
+                "reference_number": "NET-ADV-PAY-OPEN",
+            },
+            admin(),
+        )
+        create_customer_receipt(
+            {
+                "company_id": data["ai"].id,
+                "customer_id": data["customer"].id,
+                "receivable_id": sale_receivable.id,
+                "payment_date": "2026-06-23",
+                "amount": "50000",
+                "mode": "UPI",
+                "reference_number": "NET-ADV-PAY-SALE",
+            },
+            admin(),
+        )
+        advance = create_customer_receipt(
+            {
+                "company_id": data["ai"].id,
+                "customer_id": data["customer"].id,
+                "payment_date": "2026-06-23",
+                "amount": "14000",
+                "mode": "UPI",
+                "reference_number": "NET-ADV-PAY-ADV",
+            },
+            admin(),
+        )
+        db.session.commit()
+        company_id = data["ai"].id
+        customer_id = data["customer"].id
+
+        assert advance.allocated_amount == 0
+        assert advance.unallocated_amount == 14000
+
+    login(client)
+    response = client.get(f"/finance/outstanding/customer/{company_id}/{customer_id}")
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "₹1,22,000.00" in html
+    assert "₹1,00,000.00" in html
+    assert "₹22,000.00" in html
+    assert "Includes ₹14,000.00 advance offset" in html
+    assert "Bill balance ₹36,000.00 before advances" in html
+
+    report = client.get("/reports/customer-outstanding")
+    report_html = report.get_data(as_text=True)
+    assert report.status_code == 200
+    assert "₹1,00,000.00" in report_html
+    assert "₹22,000.00" in report_html
 
 
 def test_outstanding_supplier_detail_shows_bill_dates_and_edit_links(client, app):
