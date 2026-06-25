@@ -117,6 +117,7 @@ def list_customers(config):
         search=request.args.get("q"),
         company_id=selected_company_id,
         active_filter=request.args.get("active", "active"),
+        include_suppliers=True,
     )
     page = request.args.get("page", 1)
     pagination = paginate_rows(rows, page, 25)

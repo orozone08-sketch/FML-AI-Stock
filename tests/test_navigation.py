@@ -36,6 +36,19 @@ def test_company_login_selects_aditya_context(client):
     assert b"Choose Company" not in response.data
 
 
+def test_payments_page_has_type_search_for_customer_and_supplier(client):
+    login(client)
+    response = client.get("/finance/payments")
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert 'name="customer_search"' in html
+    assert 'placeholder="Type customer name or code"' in html
+    assert 'name="supplier_search"' in html
+    assert 'placeholder="Type supplier name or code"' in html
+    assert "data-option-picker" in html
+
+
 def test_company_login_selects_firsttech_context(client):
     response = login(client, "firsttech.user", "Firsttech2026")
     assert response.status_code == 200

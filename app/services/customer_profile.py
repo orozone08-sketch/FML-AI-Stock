@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from app.core.formatting import money, qty
 from app.extensions import db
-from app.models import Company, Customer, Payment, Receivable, Sale, SaleLine
+from app.models import Company, Customer, Payable, Payment, Purchase, Receivable, Sale, SaleLine, Supplier
 
 
 def selected_company_ids_for_customer(customer_id):
@@ -31,6 +31,17 @@ def customer_company_map():
     return mapping
 
 
+def supplier_company_map():
+    mapping = defaultdict(set)
+    for supplier_id, company_id in db.session.query(Purchase.supplier_id, Purchase.company_id).filter(Purchase.is_void.is_(False)).all():
+        mapping[supplier_id].add(company_id)
+    for supplier_id, company_id in db.session.query(Payable.supplier_id, Payable.company_id).filter(Payable.supplier_id.isnot(None)).all():
+        mapping[supplier_id].add(company_id)
+    for supplier_id, company_id in db.session.query(Payment.supplier_id, Payment.company_id).filter(Payment.supplier_id.isnot(None)).all():
+        mapping[supplier_id].add(company_id)
+    return mapping
+
+
 def company_lookup():
     return {company.id: company for company in Company.query.order_by(Company.code).all()}
 
@@ -41,6 +52,13 @@ def customer_identity(customer):
     extra = next((value for value in extras if value), "")
     if extra:
         parts.append(str(extra))
+    return " - ".join(parts[:2]) + (f" · {extra}" if extra else "")
+
+
+def supplier_identity(supplier):
+    parts = [supplier.code, supplier.name]
+    extras = [supplier.mobile, supplier.gst_number]
+    extra = next((value for value in extras if value), "")
     return " - ".join(parts[:2]) + (f" · {extra}" if extra else "")
 
 
@@ -63,7 +81,30 @@ def customer_search_text(customer, companies):
     return " ".join(str(field or "") for field in fields).lower()
 
 
-def customer_master_rows(search="", company_id=None, active_filter="active"):
+def supplier_search_text(supplier, companies):
+    fields = [
+        supplier.code,
+        supplier.name,
+        supplier.mobile,
+        supplier.email,
+        supplier.gst_number,
+        supplier.address,
+        "supplier",
+        "purchase",
+    ]
+    for company in companies:
+        fields.extend([company.code, company.name])
+    return " ".join(str(field or "") for field in fields).lower()
+
+
+def row_companies_for_party(linked_company_ids, companies, company_id=None):
+    if company_id and linked_company_ids and int(company_id) not in linked_company_ids:
+        return None
+    row_company_ids = linked_company_ids or ({int(company_id)} if company_id else set())
+    return [companies[linked_id] for linked_id in sorted(row_company_ids) if linked_id in companies]
+
+
+def customer_master_rows(search="", company_id=None, active_filter="active", include_suppliers=False):
     query = Customer.query
     if active_filter == "active":
         query = query.filter(Customer.active.is_(True))
@@ -76,20 +117,48 @@ def customer_master_rows(search="", company_id=None, active_filter="active"):
     rows = []
     for customer in customers:
         linked_company_ids = company_map.get(customer.id, set())
-        if company_id and linked_company_ids and int(company_id) not in linked_company_ids:
+        row_companies = row_companies_for_party(linked_company_ids, companies, company_id)
+        if row_companies is None:
             continue
-        row_company_ids = linked_company_ids or ({int(company_id)} if company_id else set())
-        row_companies = [companies[linked_id] for linked_id in sorted(row_company_ids) if linked_id in companies]
         if search and search not in customer_search_text(customer, row_companies):
             continue
         rows.append(
             {
+                "kind": "customer",
                 "customer": customer,
+                "supplier": None,
                 "identity": customer_identity(customer),
                 "companies": row_companies,
                 "company_label": ", ".join(company.code for company in row_companies) or "All",
             }
         )
+    if include_suppliers:
+        supplier_query = Supplier.query
+        if active_filter == "active":
+            supplier_query = supplier_query.filter(Supplier.active.is_(True))
+        elif active_filter == "inactive":
+            supplier_query = supplier_query.filter(Supplier.active.is_(False))
+        supplier_map = supplier_company_map()
+        for supplier in supplier_query.order_by(Supplier.name, Supplier.code).all():
+            linked_company_ids = supplier_map.get(supplier.id, set())
+            if not linked_company_ids:
+                continue
+            row_companies = row_companies_for_party(linked_company_ids, companies, company_id)
+            if row_companies is None:
+                continue
+            if search and search not in supplier_search_text(supplier, row_companies):
+                continue
+            rows.append(
+                {
+                    "kind": "supplier",
+                    "customer": None,
+                    "supplier": supplier,
+                    "identity": supplier_identity(supplier),
+                    "companies": row_companies,
+                    "company_label": ", ".join(company.code for company in row_companies) or "All",
+                }
+            )
+    rows.sort(key=lambda row: (row["identity"].lower(), row["kind"]))
     return rows
 
 

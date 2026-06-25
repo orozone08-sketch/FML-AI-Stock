@@ -3,7 +3,17 @@ from decimal import Decimal
 
 from app.core.formatting import money, qty
 from app.extensions import db
-from app.models import InterCompanyTransfer, OpeningStock, Purchase, PurchaseLine, Sale, SaleLine, StockLedgerEntry
+from app.models import (
+    InterCompanyLedgerEntry,
+    InterCompanyTransfer,
+    OpeningStock,
+    OpeningStockLine,
+    Purchase,
+    PurchaseLine,
+    Sale,
+    SaleLine,
+    StockLedgerEntry,
+)
 
 
 def movement_query(item_id, company_id=None, stock_book_id=None, date_from=None, date_to=None):
@@ -61,6 +71,151 @@ def grouped_movements(entries):
         if entry.remarks and entry.remarks not in group["remarks"]:
             group["remarks"] = f"{group['remarks']}; {entry.remarks}" if group["remarks"] else entry.remarks
     return list(groups.values())
+
+
+def source_group(company, stock_book, item, entry_date, movement_type, transaction_type, transaction_id, reference, quantity, value, remarks=""):
+    quantity = qty(quantity)
+    return {
+        "ids": [],
+        "company": company,
+        "stock_book": stock_book,
+        "item": item,
+        "date": entry_date,
+        "movement_type": movement_type,
+        "transaction_type": transaction_type,
+        "transaction_id": transaction_id,
+        "reference": reference,
+        "quantity_in": quantity if movement_type == "IN" else Decimal("0.000"),
+        "quantity_out": quantity if movement_type == "OUT" else Decimal("0.000"),
+        "value": money(value),
+        "remarks": remarks,
+    }
+
+
+def source_line_movements(item_id, company_id=None, stock_book_id=None, date_from=None, date_to=None):
+    rows = []
+
+    opening_lines = OpeningStockLine.query.join(OpeningStock).filter(
+        OpeningStockLine.item_id == item_id,
+        OpeningStock.is_void.is_(False),
+    )
+    if company_id:
+        opening_lines = opening_lines.filter(OpeningStock.company_id == company_id)
+    if stock_book_id:
+        opening_lines = opening_lines.filter(OpeningStock.stock_book_id == stock_book_id)
+    if date_from:
+        opening_lines = opening_lines.filter(OpeningStock.opening_date >= date_from)
+    if date_to:
+        opening_lines = opening_lines.filter(OpeningStock.opening_date <= date_to)
+    for line in opening_lines.all():
+        movement_type = "IN" if line.quantity > Decimal("0.000") else "OUT"
+        rows.append(
+            source_group(
+                line.opening_stock.company,
+                line.opening_stock.stock_book,
+                line.item,
+                line.opening_stock.opening_date,
+                movement_type,
+                "OPENING_STOCK",
+                line.opening_stock_id,
+                line.opening_stock.reference_number,
+                abs(line.quantity),
+                abs(line.value),
+                "Opening stock",
+            )
+        )
+
+    purchase_lines = PurchaseLine.query.join(Purchase).filter(
+        PurchaseLine.item_id == item_id,
+        Purchase.is_void.is_(False),
+    )
+    if company_id:
+        purchase_lines = purchase_lines.filter(Purchase.company_id == company_id)
+    if stock_book_id:
+        purchase_lines = purchase_lines.filter(Purchase.stock_book_id == stock_book_id)
+    if date_from:
+        purchase_lines = purchase_lines.filter(Purchase.bill_date >= date_from)
+    if date_to:
+        purchase_lines = purchase_lines.filter(Purchase.bill_date <= date_to)
+    for line in purchase_lines.all():
+        rows.append(
+            source_group(
+                line.purchase.company,
+                line.purchase.stock_book,
+                line.item,
+                line.purchase.bill_date,
+                "IN",
+                "PURCHASE",
+                line.purchase_id,
+                line.purchase.bill_number,
+                line.quantity,
+                line.subtotal,
+                "Purchase stock in",
+            )
+        )
+
+    sale_lines = SaleLine.query.join(Sale).filter(
+        SaleLine.item_id == item_id,
+        Sale.is_void.is_(False),
+    )
+    if company_id:
+        sale_lines = sale_lines.filter(Sale.company_id == company_id)
+    if stock_book_id:
+        sale_lines = sale_lines.filter(Sale.stock_book_id == stock_book_id)
+    if date_from:
+        sale_lines = sale_lines.filter(Sale.invoice_date >= date_from)
+    if date_to:
+        sale_lines = sale_lines.filter(Sale.invoice_date <= date_to)
+    for line in sale_lines.all():
+        sale_value = line.fifo_cost if money(line.fifo_cost) > Decimal("0.00") else line.subtotal
+        rows.append(
+            source_group(
+                line.sale.company,
+                line.sale.stock_book,
+                line.item,
+                line.sale.invoice_date,
+                "OUT",
+                "SALE",
+                line.sale_id,
+                line.sale.invoice_number,
+                line.quantity,
+                sale_value,
+                "Sale stock out",
+            )
+        )
+
+    transfer_entries = InterCompanyLedgerEntry.query.join(InterCompanyLedgerEntry.transfer).filter(
+        InterCompanyLedgerEntry.item_id == item_id,
+        InterCompanyTransfer.is_void.is_(False),
+    )
+    if company_id:
+        transfer_entries = transfer_entries.filter(InterCompanyLedgerEntry.stock_owner_company_id == company_id)
+    if date_from:
+        transfer_entries = transfer_entries.filter(InterCompanyTransfer.transfer_date >= date_from)
+    if date_to:
+        transfer_entries = transfer_entries.filter(InterCompanyTransfer.transfer_date <= date_to)
+    for entry in transfer_entries.all():
+        movement_type = "IN" if entry.quantity < Decimal("0.000") else "OUT"
+        stock_book = entry.transfer.to_stock_book if movement_type == "IN" else entry.transfer.from_stock_book
+        if stock_book_id and stock_book.id != int(stock_book_id):
+            continue
+        rows.append(
+            source_group(
+                entry.owner_company,
+                stock_book,
+                entry.item,
+                entry.transfer.transfer_date,
+                movement_type,
+                "TRANSFER",
+                entry.transfer_id,
+                entry.transfer.reference_number,
+                abs(entry.quantity),
+                abs(entry.amount_owed),
+                "Inter-company stock returned" if movement_type == "IN" else "Inter-company stock issued",
+            )
+        )
+
+    return sorted(rows, key=lambda row: (row["date"], row["transaction_type"], row["transaction_id"]))
 
 
 def purchase_item_bill_value(purchase_id, item_id):
@@ -173,6 +328,8 @@ def item_ledger(item_id, company_id=None, stock_book_id=None, date_from=None, da
 
     entries = movement_query(item_id, company_id, stock_book_id, date_from, date_to).all()
     movements = grouped_movements(entries)
+    if not movements:
+        movements = source_line_movements(item_id, company_id, stock_book_id, date_from, date_to)
     running_qty = Decimal("0.000")
     running_value = Decimal("0.00")
     summary = empty_summary()

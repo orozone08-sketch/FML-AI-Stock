@@ -81,7 +81,10 @@ document.addEventListener("click", async (event) => {
       const clone = row.cloneNode(true);
       clone.querySelectorAll("input").forEach((input) => (input.value = ""));
       clone.querySelectorAll("output").forEach((output) => (output.textContent = "₹0.00"));
-      clone.querySelectorAll("[data-item-picker]").forEach((picker) => delete picker.dataset.itemPickerReady);
+      clone.querySelectorAll("[data-item-picker], [data-option-picker]").forEach((picker) => {
+        delete picker.dataset.itemPickerReady;
+        delete picker.dataset.optionPickerReady;
+      });
       clone.classList.add("row-enter");
       grid.appendChild(clone);
       initializeItemPickers(clone);
@@ -133,10 +136,10 @@ document.addEventListener("click", async (event) => {
     openCustomerJump(customerJumpButton.closest("[data-customer-jump-form]"));
   }
 
-  const itemOpen = event.target.closest("[data-item-open]");
+  const itemOpen = event.target.closest("[data-item-open], [data-option-open]");
   if (itemOpen) {
-    const picker = itemOpen.closest("[data-item-picker]");
-    const input = picker && picker.querySelector("[data-item-search]");
+    const picker = itemOpen.closest("[data-item-picker], [data-option-picker]");
+    const input = picker && picker.querySelector("[data-item-search], [data-option-search]");
     if (input) {
       input.focus();
       if (typeof input.showPicker === "function") input.showPicker();
@@ -201,22 +204,24 @@ function itemOptionLabel(option) {
 }
 
 function initializeItemPickers(root = document) {
-  root.querySelectorAll("[data-item-picker]").forEach((picker) => {
-    if (picker.dataset.itemPickerReady === "true") return;
-    const input = picker.querySelector("[data-item-search]");
-    const datalist = picker.querySelector("[data-item-options]");
+  root.querySelectorAll("[data-item-picker], [data-option-picker]").forEach((picker) => {
+    if (picker.dataset.itemPickerReady === "true" || picker.dataset.optionPickerReady === "true") return;
+    const input = picker.querySelector("[data-item-search], [data-option-search]");
+    const datalist = picker.querySelector("[data-item-options], [data-option-list]");
     if (!input || !datalist) return;
-    const id = `item_options_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const prefix = picker.dataset.pickerPrefix || "picker";
+    const id = `${prefix}_options_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     datalist.id = id;
     input.setAttribute("list", id);
     picker.dataset.itemPickerReady = "true";
+    picker.dataset.optionPickerReady = "true";
     syncItemValue(input);
   });
 }
 
 function matchingItemOption(input) {
-  const picker = input.closest("[data-item-picker]");
-  const datalist = picker && picker.querySelector("[data-item-options]");
+  const picker = input.closest("[data-item-picker], [data-option-picker]");
+  const datalist = picker && picker.querySelector("[data-item-options], [data-option-list]");
   if (!datalist) return null;
   const value = input.value.trim().toLowerCase();
   if (!value) return null;
@@ -224,17 +229,18 @@ function matchingItemOption(input) {
 }
 
 function syncItemValue(input) {
-  const picker = input.closest("[data-item-picker]");
-  const hidden = picker && picker.querySelector("[data-item-value]");
+  const picker = input.closest("[data-item-picker], [data-option-picker]");
+  const hidden = picker && picker.querySelector("[data-item-value], [data-option-value]");
   if (!hidden) return false;
   const option = matchingItemOption(input);
-  hidden.value = option ? option.dataset.itemId || "" : "";
-  input.setCustomValidity(input.value.trim() && !hidden.value ? "Select an item from the list." : "");
+  hidden.value = option ? option.dataset.itemId || option.dataset.optionId || "" : "";
+  const label = picker?.dataset.pickerLabel || "item";
+  input.setCustomValidity(input.value.trim() && !hidden.value ? `Select a ${label} from the list.` : "");
   return Boolean(hidden.value);
 }
 
 function validateItemPickers(form) {
-  const inputs = Array.from(form.querySelectorAll("[data-item-search]"));
+  const inputs = Array.from(form.querySelectorAll("[data-item-search], [data-option-search]"));
   for (const input of inputs) {
     if (!syncItemValue(input)) {
       input.reportValidity();
@@ -415,7 +421,7 @@ document.addEventListener("input", (event) => {
     updateLineTotal(event.target.closest(".line-row"));
   }
 
-  if (event.target.matches("[data-item-search]")) {
+  if (event.target.matches("[data-item-search], [data-option-search]")) {
     syncItemValue(event.target);
   }
 

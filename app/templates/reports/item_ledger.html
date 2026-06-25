@@ -5,11 +5,16 @@
   <section class="panel">
     <form class="toolbar" method="get">
       <a class="secondary-button" href="{{ url_for('reports.index') }}">All reports</a>
-      <select name="item_id" required>
-        {% for item in items %}
-          <option value="{{ item.id }}" {% if selected_item_id == item.id %}selected{% endif %}>{{ item.display_name }}</option>
-        {% endfor %}
-      </select>
+      <div class="item-combobox" data-option-picker data-picker-label="item" data-picker-prefix="report_item">
+        <input name="item_search" type="text" value="{{ selected_item.display_name if selected_item else '' }}" placeholder="Type item code or name" autocomplete="off" required data-option-search>
+        <input name="item_id" type="hidden" value="{{ selected_item_id or '' }}" data-option-value>
+        <button type="button" class="item-combobox-button" data-option-open aria-label="Show item list"></button>
+        <datalist data-option-list>
+          {% for item in items %}
+            <option value="{{ item.display_name }}" data-option-id="{{ item.id }}"></option>
+          {% endfor %}
+        </datalist>
+      </div>
       <select name="company_id" {% if active_company %}disabled{% endif %}>
         {% if not active_company %}<option value="">All companies</option>{% endif %}
         {% for company in companies %}

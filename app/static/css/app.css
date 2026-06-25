@@ -731,7 +731,8 @@ textarea { min-height: 84px; resize: vertical; }
   position: relative;
   min-width: 0;
 }
-.item-combobox input[data-item-search] {
+.item-combobox input[data-item-search],
+.item-combobox input[data-option-search] {
   padding-right: 46px;
 }
 .item-combobox-button {

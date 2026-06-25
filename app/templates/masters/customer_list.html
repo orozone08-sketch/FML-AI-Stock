@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 {% block page_title %}Customers{% endblock %}
-{% block page_subtitle %}Search, identify, and open full customer profiles using customer ID backed links.{% endblock %}
+{% block page_subtitle %}Search customer profiles and purchase-linked suppliers in one place.{% endblock %}
 {% block content %}
   <section class="panel">
     <form class="toolbar" method="get" data-live-search-form>
-      <input name="q" placeholder="Search name, company, contact, mobile, GST, city" value="{{ request.args.get('q','') }}" autocomplete="off" data-live-search data-live-target="#customers_table">
+      <input name="q" placeholder="Search customer/supplier, company, mobile, GST, city" value="{{ request.args.get('q','') }}" autocomplete="off" data-live-search data-live-target="#customers_table">
       <select name="company_id" {% if active_company %}disabled{% endif %}>
         {% if not active_company %}<option value="">All companies</option>{% endif %}
         {% for company in companies %}
@@ -23,10 +23,14 @@
       {% endif %}
     </form>
     <form class="toolbar compact-toolbar" data-customer-jump-form>
-      <input placeholder="Type customer name to open profile" list="customer_jump_options" autocomplete="off" data-customer-jump>
+      <input placeholder="Type customer or supplier name to open" list="customer_jump_options" autocomplete="off" data-customer-jump>
       <datalist id="customer_jump_options">
         {% for row in all_rows %}
-          <option value="{{ row.identity }}" data-url="{{ url_for('masters.customer_detail', customer_id=row.customer.id, company_id=selected_company_id or '') }}"></option>
+          {% if row.kind == 'customer' %}
+            <option value="{{ row.identity }}" data-url="{{ url_for('masters.customer_detail', customer_id=row.customer.id, company_id=selected_company_id or '') }}"></option>
+          {% else %}
+            <option value="{{ row.identity }}" data-url="{{ url_for('masters.list_records', kind='suppliers', q=row.supplier.name) }}"></option>
+          {% endif %}
         {% endfor %}
       </datalist>
       <button class="secondary-button" type="submit">Open</button>
@@ -35,7 +39,7 @@
 
   <section class="panel">
     <div class="panel-title">
-      <h2>Customer List</h2>
+      <h2>Customer / Supplier List</h2>
       <span class="muted-copy">{{ pagination.total }} record{{ '' if pagination.total == 1 else 's' }}</span>
     </div>
     <div class="table-wrap">
@@ -45,29 +49,48 @@
         </thead>
         <tbody>
           {% for row in rows %}
-            {% set customer = row.customer %}
             <tr>
               <td>{{ row.company_label }}</td>
-              <td>
-                <a class="customer-link" href="{{ url_for('masters.customer_detail', customer_id=customer.id, company_id=selected_company_id or '') }}">{{ customer.name }}</a>
-                <small class="customer-subtext">{{ customer.code }}{% if customer.mobile %} · {{ customer.mobile }}{% endif %}{% if customer.city %} · {{ customer.city }}{% endif %}{% if customer.gst_number %} · GST {{ customer.gst_number }}{% endif %}</small>
-              </td>
-              <td>{{ customer.contact_person or '' }}</td>
-              <td>{{ customer.mobile or '' }}</td>
-              <td>{{ customer.gst_number or '' }}</td>
-              <td>{{ customer.city or '' }}</td>
-              <td><span class="status {{ 'ok' if customer.active else 'muted' }}">{{ 'Active' if customer.active else 'Inactive' }}</span></td>
-              <td class="actions">
-                <a class="table-action" href="{{ url_for('masters.customer_detail', customer_id=customer.id, company_id=selected_company_id or '') }}">View Details</a>
-                {% if can(current_user, config.module, 'edit') %}
-                  <a class="table-action" href="{{ url_for('masters.edit_record', kind=kind, record_id=customer.id) }}">Edit</a>
-                {% endif %}
-              </td>
+              {% if row.kind == 'customer' %}
+                {% set customer = row.customer %}
+                <td>
+                  <a class="customer-link" href="{{ url_for('masters.customer_detail', customer_id=customer.id, company_id=selected_company_id or '') }}">{{ customer.name }}</a>
+                  <small class="customer-subtext">Customer · {{ customer.code }}{% if customer.mobile %} · {{ customer.mobile }}{% endif %}{% if customer.city %} · {{ customer.city }}{% endif %}{% if customer.gst_number %} · GST {{ customer.gst_number }}{% endif %}</small>
+                </td>
+                <td>{{ customer.contact_person or '' }}</td>
+                <td>{{ customer.mobile or '' }}</td>
+                <td>{{ customer.gst_number or '' }}</td>
+                <td>{{ customer.city or '' }}</td>
+                <td><span class="status {{ 'ok' if customer.active else 'muted' }}">{{ 'Active' if customer.active else 'Inactive' }}</span></td>
+                <td class="actions">
+                  <a class="table-action" href="{{ url_for('masters.customer_detail', customer_id=customer.id, company_id=selected_company_id or '') }}">View Details</a>
+                  {% if can(current_user, config.module, 'edit') %}
+                    <a class="table-action" href="{{ url_for('masters.edit_record', kind=kind, record_id=customer.id) }}">Edit</a>
+                  {% endif %}
+                </td>
+              {% else %}
+                {% set supplier = row.supplier %}
+                <td>
+                  <a class="customer-link" href="{{ url_for('masters.list_records', kind='suppliers', q=supplier.name) }}">{{ supplier.name }}</a>
+                  <small class="customer-subtext">Supplier from purchase · {{ supplier.code }}{% if supplier.mobile %} · {{ supplier.mobile }}{% endif %}{% if supplier.gst_number %} · GST {{ supplier.gst_number }}{% endif %}</small>
+                </td>
+                <td></td>
+                <td>{{ supplier.mobile or '' }}</td>
+                <td>{{ supplier.gst_number or '' }}</td>
+                <td></td>
+                <td><span class="status {{ 'ok' if supplier.active else 'muted' }}">{{ 'Supplier' if supplier.active else 'Inactive supplier' }}</span></td>
+                <td class="actions">
+                  <a class="table-action" href="{{ url_for('masters.list_records', kind='suppliers', q=supplier.name) }}">Open Supplier</a>
+                  {% if can(current_user, 'suppliers', 'edit') %}
+                    <a class="table-action" href="{{ url_for('masters.edit_record', kind='suppliers', record_id=supplier.id) }}">Edit</a>
+                  {% endif %}
+                </td>
+              {% endif %}
             </tr>
           {% else %}
-            <tr><td colspan="8" class="empty">No customers found.</td></tr>
+            <tr><td colspan="8" class="empty">No customers or purchase-linked suppliers found.</td></tr>
           {% endfor %}
-          <tr class="empty live-empty" data-live-empty hidden><td colspan="8">No matching customers.</td></tr>
+          <tr class="empty live-empty" data-live-empty hidden><td colspan="8">No matching customers or suppliers.</td></tr>
         </tbody>
       </table>
     </div>

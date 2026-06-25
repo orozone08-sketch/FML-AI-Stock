@@ -200,6 +200,7 @@ def test_item_ledger_shows_supplier_debtor_and_running_stock(client, app):
         highlight_id = sale_entry.id
         supplier_name = data["supplier"].name
         customer_name = data["customer"].name
+        StockLedgerEntry.query.filter_by(company_id=company_id, item_id=item_id).delete(synchronize_session=False)
         db.session.commit()
 
     login(client)

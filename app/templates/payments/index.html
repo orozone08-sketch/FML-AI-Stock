@@ -8,7 +8,19 @@
       <form method="post" action="{{ url_for('payments.customer_receipt') }}" class="form-stack">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label>Company <select name="company_id" required>{% for company in companies %}<option value="{{ company.id }}" {% if active_company and company.id == active_company.id %}selected{% endif %}>{{ company.code }} - {{ company.name }}</option>{% endfor %}</select></label>
-        <label>Customer <select name="customer_id" required>{% for customer in customers %}<option value="{{ customer.id }}">{{ customer.code }} - {{ customer.name }}</option>{% endfor %}</select></label>
+        <label>Customer
+          <div class="item-combobox" data-option-picker data-picker-label="customer" data-picker-prefix="customer">
+            {% set selected_customer = customers[0] if customers else none %}
+            <input name="customer_search" type="text" value="{{ selected_customer.code ~ ' - ' ~ selected_customer.name if selected_customer else '' }}" placeholder="Type customer name or code" autocomplete="off" required data-option-search>
+            <input name="customer_id" type="hidden" value="{{ selected_customer.id if selected_customer else '' }}" data-option-value>
+            <button type="button" class="item-combobox-button" data-option-open aria-label="Show customer list"></button>
+            <datalist data-option-list>
+              {% for customer in customers %}
+                <option value="{{ customer.code }} - {{ customer.name }}" data-option-id="{{ customer.id }}"></option>
+              {% endfor %}
+            </datalist>
+          </div>
+        </label>
         <label>Invoice
           <select name="receivable_id">
             <option value="">Treat as advance</option>
@@ -32,7 +44,19 @@
       <form method="post" action="{{ url_for('payments.supplier_payment') }}" class="form-stack">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label>Company <select name="company_id" required>{% for company in companies %}<option value="{{ company.id }}" {% if active_company and company.id == active_company.id %}selected{% endif %}>{{ company.code }} - {{ company.name }}</option>{% endfor %}</select></label>
-        <label>Supplier <select name="supplier_id" required>{% for supplier in suppliers %}<option value="{{ supplier.id }}">{{ supplier.code }} - {{ supplier.name }}</option>{% endfor %}</select></label>
+        <label>Supplier
+          <div class="item-combobox" data-option-picker data-picker-label="supplier" data-picker-prefix="supplier">
+            {% set selected_supplier = suppliers[0] if suppliers else none %}
+            <input name="supplier_search" type="text" value="{{ selected_supplier.code ~ ' - ' ~ selected_supplier.name if selected_supplier else '' }}" placeholder="Type supplier name or code" autocomplete="off" required data-option-search>
+            <input name="supplier_id" type="hidden" value="{{ selected_supplier.id if selected_supplier else '' }}" data-option-value>
+            <button type="button" class="item-combobox-button" data-option-open aria-label="Show supplier list"></button>
+            <datalist data-option-list>
+              {% for supplier in suppliers %}
+                <option value="{{ supplier.code }} - {{ supplier.name }}" data-option-id="{{ supplier.id }}"></option>
+              {% endfor %}
+            </datalist>
+          </div>
+        </label>
         <label>Bill
           <select name="payable_id">
             <option value="">Treat as advance</option>
