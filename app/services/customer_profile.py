@@ -141,8 +141,6 @@ def customer_master_rows(search="", company_id=None, active_filter="active", inc
         supplier_map = supplier_company_map()
         for supplier in supplier_query.order_by(Supplier.name, Supplier.code).all():
             linked_company_ids = supplier_map.get(supplier.id, set())
-            if not linked_company_ids:
-                continue
             row_companies = row_companies_for_party(linked_company_ids, companies, company_id)
             if row_companies is None:
                 continue

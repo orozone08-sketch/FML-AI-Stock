@@ -1,7 +1,7 @@
 from app.extensions import db
 from app.models import Customer, Receivable
 from app.services.payments import create_customer_receipt
-from app.services.transactions import create_purchase, create_sale
+from app.services.transactions import create_sale
 from tests.test_fifo_workflows import admin, ids
 from tests.test_navigation import login
 
@@ -79,21 +79,9 @@ def test_customer_list_search_clickable_names_and_profile_page(client, app):
     assert f"/transactions/sale/{sale_id}/export/pdf" in detail_html
 
 
-def test_customer_list_includes_purchase_linked_suppliers(client, app):
+def test_customer_list_includes_supplier_master_records(client, app):
     with app.app_context():
         data = ids()
-        create_purchase(
-            {
-                "company_id": data["ai"].id,
-                "stock_book_id": data["ai_gst"].id,
-                "supplier_id": data["supplier"].id,
-                "purchase_type": "GST",
-                "bill_number": "PROFILE-SUP-PUR",
-                "bill_date": "2026-06-25",
-            },
-            [{"item_id": data["item"].id, "quantity": "1", "rate": "100", "gst_percent": "18"}],
-            admin(),
-        )
         supplier_name = data["supplier"].name
         supplier_id = data["supplier"].id
         db.session.commit()
@@ -104,7 +92,7 @@ def test_customer_list_includes_purchase_linked_suppliers(client, app):
 
     assert response.status_code == 200
     assert supplier_name in html
-    assert "Supplier from purchase" in html
+    assert "Supplier" in html
     assert f"/masters/suppliers/{supplier_id}/transactions" in html
     assert f"/masters/suppliers/{supplier_id}/edit" in html
 
@@ -113,7 +101,6 @@ def test_customer_list_includes_purchase_linked_suppliers(client, app):
 
     assert detail.status_code == 200
     assert supplier_name in detail_html
-    assert "PROFILE-SUP-PUR" in detail_html
     assert "Activity Till Date" in detail_html
     assert "Purchase Bills" in detail_html
 

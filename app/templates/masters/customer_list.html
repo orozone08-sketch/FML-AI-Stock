@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block page_title %}Customers{% endblock %}
-{% block page_subtitle %}Search customer profiles and purchase-linked suppliers in one place.{% endblock %}
+{% block page_subtitle %}Search customer and supplier master records with full transaction drilldowns.{% endblock %}
 {% block content %}
   <section class="panel">
     <form class="toolbar" method="get" data-live-search-form>
@@ -39,13 +39,13 @@
 
   <section class="panel">
     <div class="panel-title">
-      <h2>Customer / Supplier List</h2>
+      <h2>Customer / Supplier Directory</h2>
       <span class="muted-copy">{{ pagination.total }} record{{ '' if pagination.total == 1 else 's' }}</span>
     </div>
     <div class="table-wrap">
       <table id="customers_table">
         <thead>
-          <tr><th>Company</th><th>Customer</th><th>Contact</th><th>Mobile</th><th>GST</th><th>City</th><th>Status</th><th>Actions</th></tr>
+          <tr><th>Company</th><th>Party</th><th>Contact</th><th>Mobile</th><th>GST</th><th>City</th><th>Status</th><th>Actions</th></tr>
         </thead>
         <tbody>
           {% for row in rows %}
@@ -72,8 +72,8 @@
               {% else %}
                 {% set supplier = row.supplier %}
                 <td>
-                  <a class="customer-link" href="{{ url_for('masters.list_records', kind='suppliers', q=supplier.name) }}">{{ supplier.name }}</a>
-                  <small class="customer-subtext">Supplier from purchase · {{ supplier.code }}{% if supplier.mobile %} · {{ supplier.mobile }}{% endif %}{% if supplier.gst_number %} · GST {{ supplier.gst_number }}{% endif %}</small>
+                  <a class="customer-link" href="{{ url_for('masters.supplier_transaction_detail', supplier_id=supplier.id, company_id=selected_company_id or '') }}">{{ supplier.name }}</a>
+                  <small class="customer-subtext">Supplier · {{ supplier.code }}{% if supplier.mobile %} · {{ supplier.mobile }}{% endif %}{% if supplier.gst_number %} · GST {{ supplier.gst_number }}{% endif %}</small>
                 </td>
                 <td></td>
                 <td>{{ supplier.mobile or '' }}</td>
@@ -90,7 +90,7 @@
               {% endif %}
             </tr>
           {% else %}
-            <tr><td colspan="8" class="empty">No customers or purchase-linked suppliers found.</td></tr>
+            <tr><td colspan="8" class="empty">No customer or supplier master records found.</td></tr>
           {% endfor %}
           <tr class="empty live-empty" data-live-empty hidden><td colspan="8">No matching customers or suppliers.</td></tr>
         </tbody>
