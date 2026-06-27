@@ -1,0 +1,57 @@
+<div class="floating-tools" data-floating-tools>
+  <div class="floating-tool-actions">
+    <button type="button" class="floating-tool-button" data-tool-toggle="calculator" aria-controls="floating_calculator" aria-expanded="false">Calc</button>
+    <button type="button" class="floating-tool-button" data-tool-toggle="calendar" aria-controls="floating_calendar" aria-expanded="false">Calendar</button>
+  </div>
+
+  <section id="floating_calculator" class="floating-tool-panel calculator-panel" data-tool-panel="calculator" hidden>
+    <div class="tool-panel-title">
+      <strong>Calculator</strong>
+      <button type="button" class="tool-close" data-tool-close aria-label="Close calculator">x</button>
+    </div>
+    <output class="calculator-display" data-calc-display>0</output>
+    <div class="calculator-grid">
+      <button type="button" data-calc-key="clear">C</button>
+      <button type="button" data-calc-key="back">Back</button>
+      <button type="button" data-calc-key="%">%</button>
+      <button type="button" data-calc-key="/">/</button>
+      <button type="button" data-calc-key="7">7</button>
+      <button type="button" data-calc-key="8">8</button>
+      <button type="button" data-calc-key="9">9</button>
+      <button type="button" data-calc-key="*">x</button>
+      <button type="button" data-calc-key="4">4</button>
+      <button type="button" data-calc-key="5">5</button>
+      <button type="button" data-calc-key="6">6</button>
+      <button type="button" data-calc-key="-">-</button>
+      <button type="button" data-calc-key="1">1</button>
+      <button type="button" data-calc-key="2">2</button>
+      <button type="button" data-calc-key="3">3</button>
+      <button type="button" data-calc-key="+">+</button>
+      <button type="button" data-calc-key="negate">+/-</button>
+      <button type="button" data-calc-key="0">0</button>
+      <button type="button" data-calc-key=".">.</button>
+      <button type="button" data-calc-key="equals">=</button>
+    </div>
+  </section>
+
+  <section id="floating_calendar" class="floating-tool-panel calendar-panel" data-tool-panel="calendar" data-calendar-url="{{ url_for('dashboard.calendar_events') }}" hidden>
+    <div class="tool-panel-title">
+      <strong>Calendar</strong>
+      <button type="button" class="tool-close" data-tool-close aria-label="Close calendar">x</button>
+    </div>
+    <div class="calendar-toolbar">
+      <button type="button" data-calendar-prev aria-label="Previous month">&lt;</button>
+      <strong data-calendar-title></strong>
+      <button type="button" data-calendar-next aria-label="Next month">&gt;</button>
+      <button type="button" data-calendar-today>Today</button>
+    </div>
+    <div class="calendar-weekdays" aria-hidden="true">
+      <span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
+    </div>
+    <div class="calendar-grid" data-calendar-grid></div>
+    <div class="calendar-event-list">
+      <strong data-calendar-selected>Events</strong>
+      <div data-calendar-events class="calendar-events"></div>
+    </div>
+  </section>
+</div>

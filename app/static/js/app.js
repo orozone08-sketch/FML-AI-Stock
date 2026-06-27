@@ -475,3 +475,277 @@ document.querySelectorAll("form").forEach(syncTransactionGstFields);
 document.querySelectorAll(".line-row").forEach(updateLineTotal);
 initializeItemPickers();
 document.querySelectorAll("[data-live-search]").forEach(applyLiveSearch);
+
+const calculatorStates = new WeakMap();
+const calendarStates = new WeakMap();
+
+function getCalculatorState(panel) {
+  if (!calculatorStates.has(panel)) {
+    calculatorStates.set(panel, { display: "0", first: null, operator: null, waiting: false });
+  }
+  return calculatorStates.get(panel);
+}
+
+function updateCalculatorDisplay(panel) {
+  const state = getCalculatorState(panel);
+  const display = panel.querySelector("[data-calc-display]");
+  if (display) display.textContent = state.display;
+}
+
+function cleanCalculatorNumber(value) {
+  if (!Number.isFinite(value)) return "Error";
+  const rounded = Math.round((value + Number.EPSILON) * 100000000) / 100000000;
+  return String(rounded).slice(0, 16);
+}
+
+function calculateValue(first, second, operator) {
+  if (operator === "+") return first + second;
+  if (operator === "-") return first - second;
+  if (operator === "*") return first * second;
+  if (operator === "/") return second === 0 ? Number.NaN : first / second;
+  return second;
+}
+
+function handleCalculatorKey(panel, key) {
+  const state = getCalculatorState(panel);
+  if (key === "clear") {
+    calculatorStates.set(panel, { display: "0", first: null, operator: null, waiting: false });
+    updateCalculatorDisplay(panel);
+    return;
+  }
+  if (state.display === "Error") {
+    state.display = "0";
+    state.first = null;
+    state.operator = null;
+    state.waiting = false;
+  }
+  if (/^\d$/.test(key)) {
+    state.display = state.waiting || state.display === "0" ? key : `${state.display}${key}`.slice(0, 16);
+    state.waiting = false;
+  } else if (key === ".") {
+    if (state.waiting) {
+      state.display = "0.";
+      state.waiting = false;
+    } else if (!state.display.includes(".")) {
+      state.display += ".";
+    }
+  } else if (key === "back") {
+    state.display = state.display.length > 1 ? state.display.slice(0, -1) : "0";
+  } else if (key === "negate") {
+    state.display = cleanCalculatorNumber(Number(state.display) * -1);
+  } else if (key === "%") {
+    state.display = cleanCalculatorNumber(Number(state.display) / 100);
+  } else if (["+", "-", "*", "/"].includes(key)) {
+    const current = Number(state.display);
+    if (state.operator && !state.waiting) {
+      state.display = cleanCalculatorNumber(calculateValue(state.first, current, state.operator));
+      state.first = Number(state.display);
+    } else {
+      state.first = current;
+    }
+    state.operator = key;
+    state.waiting = true;
+  } else if (key === "equals") {
+    if (state.operator !== null) {
+      const current = Number(state.display);
+      state.display = cleanCalculatorNumber(calculateValue(state.first, current, state.operator));
+      state.first = null;
+      state.operator = null;
+      state.waiting = true;
+    }
+  }
+  updateCalculatorDisplay(panel);
+}
+
+function closeFloatingTools(root = document) {
+  root.querySelectorAll("[data-tool-panel]").forEach((panel) => {
+    panel.hidden = true;
+  });
+  root.querySelectorAll("[data-tool-toggle]").forEach((button) => {
+    button.classList.remove("is-active");
+    button.setAttribute("aria-expanded", "false");
+  });
+}
+
+function openFloatingTool(name, root = document) {
+  const panel = root.querySelector(`[data-tool-panel="${name}"]`);
+  const button = root.querySelector(`[data-tool-toggle="${name}"]`);
+  if (!panel || !button) return;
+  const willOpen = panel.hidden;
+  closeFloatingTools(root);
+  if (willOpen) {
+    panel.hidden = false;
+    button.classList.add("is-active");
+    button.setAttribute("aria-expanded", "true");
+    if (name === "calendar") initializeCalendar(panel);
+  }
+}
+
+function localDateKey(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function parseLocalDate(key) {
+  const [year, month, day] = key.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function getCalendarState(panel) {
+  if (!calendarStates.has(panel)) {
+    const today = new Date();
+    calendarStates.set(panel, {
+      monthDate: new Date(today.getFullYear(), today.getMonth(), 1),
+      selectedDate: localDateKey(today),
+      events: [],
+      loadedMonth: "",
+    });
+  }
+  return calendarStates.get(panel);
+}
+
+function monthTitle(date) {
+  return new Intl.DateTimeFormat("en-IN", { month: "long", year: "numeric" }).format(date);
+}
+
+async function initializeCalendar(panel) {
+  const state = getCalendarState(panel);
+  await loadCalendarMonth(panel, state.monthDate);
+}
+
+async function loadCalendarMonth(panel, monthDate) {
+  const state = getCalendarState(panel);
+  const monthKey = `${monthDate.getFullYear()}-${monthDate.getMonth()}`;
+  state.monthDate = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
+  const selected = parseLocalDate(state.selectedDate);
+  if (selected.getFullYear() !== state.monthDate.getFullYear() || selected.getMonth() !== state.monthDate.getMonth()) {
+    state.selectedDate = localDateKey(state.monthDate);
+  }
+  if (state.loadedMonth !== monthKey) {
+    const start = localDateKey(new Date(monthDate.getFullYear(), monthDate.getMonth(), 1));
+    const end = localDateKey(new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0));
+    const url = `${panel.dataset.calendarUrl}?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`;
+    const response = await fetch(url);
+    const data = response.ok ? await response.json() : { events: [] };
+    state.events = data.events || [];
+    state.loadedMonth = monthKey;
+  }
+  renderCalendar(panel);
+}
+
+function eventsByDate(events) {
+  return events.reduce((map, event) => {
+    map[event.date] = map[event.date] || [];
+    map[event.date].push(event);
+    return map;
+  }, {});
+}
+
+function renderCalendar(panel) {
+  const state = getCalendarState(panel);
+  const byDate = eventsByDate(state.events);
+  const title = panel.querySelector("[data-calendar-title]");
+  const grid = panel.querySelector("[data-calendar-grid]");
+  if (title) title.textContent = monthTitle(state.monthDate);
+  if (!grid) return;
+  grid.textContent = "";
+
+  const first = new Date(state.monthDate.getFullYear(), state.monthDate.getMonth(), 1);
+  const last = new Date(state.monthDate.getFullYear(), state.monthDate.getMonth() + 1, 0);
+  const todayKey = localDateKey(new Date());
+  for (let index = 0; index < first.getDay(); index += 1) {
+    const blank = document.createElement("span");
+    blank.className = "calendar-day is-muted";
+    grid.appendChild(blank);
+  }
+  for (let day = 1; day <= last.getDate(); day += 1) {
+    const current = new Date(state.monthDate.getFullYear(), state.monthDate.getMonth(), day);
+    const key = localDateKey(current);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "calendar-day";
+    if (key === todayKey) button.classList.add("is-today");
+    if (key === state.selectedDate) button.classList.add("is-selected");
+    button.dataset.calendarDay = key;
+    button.textContent = String(day);
+    if (byDate[key]?.length) {
+      const count = document.createElement("span");
+      count.className = "calendar-day-count";
+      count.textContent = String(byDate[key].length);
+      button.appendChild(count);
+    }
+    grid.appendChild(button);
+  }
+  renderCalendarEvents(panel);
+}
+
+function renderCalendarEvents(panel) {
+  const state = getCalendarState(panel);
+  const label = panel.querySelector("[data-calendar-selected]");
+  const list = panel.querySelector("[data-calendar-events]");
+  if (!list) return;
+  const selected = parseLocalDate(state.selectedDate);
+  if (label) label.textContent = new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", year: "numeric" }).format(selected);
+  list.textContent = "";
+  const events = state.events.filter((event) => event.date === state.selectedDate);
+  if (!events.length) {
+    const empty = document.createElement("small");
+    empty.textContent = "No events for this date.";
+    list.appendChild(empty);
+    return;
+  }
+  events.forEach((event) => {
+    const item = document.createElement(event.url ? "a" : "div");
+    item.className = `calendar-event ${event.severity || ""}`.trim();
+    if (event.url) item.href = event.url;
+    const title = document.createElement("strong");
+    title.textContent = event.title;
+    const meta = document.createElement("small");
+    meta.textContent = [event.kind, event.company, event.amount].filter(Boolean).join(" · ");
+    item.append(title, meta);
+    list.appendChild(item);
+  });
+}
+
+document.addEventListener("click", async (event) => {
+  const toggle = event.target.closest("[data-tool-toggle]");
+  if (toggle) {
+    openFloatingTool(toggle.dataset.toolToggle, toggle.closest("[data-floating-tools]"));
+    return;
+  }
+  if (event.target.closest("[data-tool-close]")) {
+    closeFloatingTools(event.target.closest("[data-floating-tools]"));
+    return;
+  }
+  const calcKey = event.target.closest("[data-calc-key]");
+  if (calcKey) {
+    const panel = calcKey.closest("[data-tool-panel='calculator']");
+    if (panel) handleCalculatorKey(panel, calcKey.dataset.calcKey);
+    return;
+  }
+  const calendarPanel = event.target.closest("[data-tool-panel='calendar']");
+  if (calendarPanel) {
+    const state = getCalendarState(calendarPanel);
+    if (event.target.closest("[data-calendar-prev]")) {
+      await loadCalendarMonth(calendarPanel, new Date(state.monthDate.getFullYear(), state.monthDate.getMonth() - 1, 1));
+      return;
+    }
+    if (event.target.closest("[data-calendar-next]")) {
+      await loadCalendarMonth(calendarPanel, new Date(state.monthDate.getFullYear(), state.monthDate.getMonth() + 1, 1));
+      return;
+    }
+    if (event.target.closest("[data-calendar-today]")) {
+      const today = new Date();
+      state.selectedDate = localDateKey(today);
+      await loadCalendarMonth(calendarPanel, new Date(today.getFullYear(), today.getMonth(), 1));
+      return;
+    }
+    const day = event.target.closest("[data-calendar-day]");
+    if (day) {
+      state.selectedDate = day.dataset.calendarDay;
+      renderCalendar(calendarPanel);
+    }
+  }
+});

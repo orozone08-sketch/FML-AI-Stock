@@ -977,6 +977,184 @@ button.is-loading::after {
   font-weight: 750;
   white-space: nowrap;
 }
+.floating-tools {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 80;
+  display: grid;
+  justify-items: end;
+  gap: 10px;
+  pointer-events: none;
+}
+.floating-tool-actions {
+  display: flex;
+  gap: 8px;
+  pointer-events: auto;
+}
+.floating-tool-button {
+  border: 1px solid rgba(208, 213, 221, 0.95);
+  border-radius: 999px;
+  background: var(--navy);
+  color: #fff;
+  padding: 10px 14px;
+  font-weight: 850;
+  box-shadow: 0 12px 28px rgba(15, 37, 68, 0.22);
+  cursor: pointer;
+  transition: transform 140ms ease, box-shadow 140ms ease, background 140ms ease;
+}
+.floating-tool-button:hover,
+.floating-tool-button.is-active {
+  background: var(--teal);
+  transform: translateY(-1px);
+  box-shadow: 0 14px 32px rgba(15, 37, 68, 0.28);
+}
+.floating-tool-panel {
+  width: min(360px, calc(100vw - 32px));
+  max-height: min(620px, calc(100vh - 120px));
+  overflow: auto;
+  border: 1px solid rgba(208, 213, 221, 0.95);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 20px 44px rgba(15, 37, 68, 0.26);
+  backdrop-filter: blur(14px);
+  padding: 12px;
+  pointer-events: auto;
+  animation: slide-in 160ms ease-out both;
+}
+.tool-panel-title,
+.calendar-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.tool-close,
+.calendar-toolbar button,
+.calculator-grid button {
+  border: 1px solid #D0D5DD;
+  border-radius: 6px;
+  background: #fff;
+  color: var(--navy);
+  font-weight: 800;
+  cursor: pointer;
+}
+.tool-close {
+  width: 30px;
+  height: 30px;
+}
+.calculator-display {
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 10px 12px;
+  border: 1px solid #D0D5DD;
+  border-radius: 8px;
+  background: #101828;
+  color: #fff;
+  font-size: 1.35rem;
+  font-weight: 850;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.calculator-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+.calculator-grid button {
+  min-height: 42px;
+}
+.calculator-grid button[data-calc-key="equals"] {
+  background: var(--teal);
+  color: #fff;
+  border-color: var(--teal);
+}
+.calendar-toolbar button {
+  min-height: 32px;
+  padding: 6px 9px;
+}
+.calendar-toolbar [data-calendar-title] {
+  flex: 1;
+  text-align: center;
+}
+.calendar-weekdays,
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 5px;
+}
+.calendar-weekdays span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 850;
+  text-align: center;
+}
+.calendar-day {
+  min-height: 40px;
+  border: 1px solid #E4E7EC;
+  border-radius: 7px;
+  background: #fff;
+  color: var(--text);
+  font-weight: 750;
+  cursor: pointer;
+  position: relative;
+}
+.calendar-day:hover,
+.calendar-day.is-selected {
+  border-color: var(--teal);
+  box-shadow: 0 8px 18px rgba(15, 37, 68, 0.09);
+}
+.calendar-day.is-today {
+  color: var(--teal);
+}
+.calendar-day.is-muted {
+  color: #98A2B3;
+  background: #F8FAFC;
+}
+.calendar-day-count {
+  position: absolute;
+  right: 4px;
+  bottom: 3px;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  display: inline-grid;
+  place-items: center;
+  background: var(--gold);
+  color: #fff;
+  font-size: 0.66rem;
+}
+.calendar-event-list {
+  margin-top: 12px;
+  border-top: 1px solid #EAECF0;
+  padding-top: 10px;
+}
+.calendar-events {
+  display: grid;
+  gap: 7px;
+  margin-top: 8px;
+}
+.calendar-event {
+  display: grid;
+  gap: 2px;
+  padding: 8px;
+  border: 1px solid #EAECF0;
+  border-left: 3px solid var(--teal);
+  border-radius: 7px;
+  background: #fff;
+  color: inherit;
+  text-decoration: none;
+}
+.calendar-event.overdue { border-left-color: var(--danger); }
+.calendar-event.today,
+.calendar-event.due { border-left-color: var(--gold); }
+.calendar-event small {
+  color: var(--muted);
+}
 .accordion-stack details > summary {
   cursor: pointer;
   font-weight: 800;
@@ -1126,6 +1304,13 @@ button.is-loading::after {
   }
   .topbar-actions {
     justify-content: flex-start;
+  }
+  .floating-tools {
+    right: 12px;
+    bottom: 12px;
+  }
+  .floating-tool-panel {
+    width: calc(100vw - 24px);
   }
   .company-chip,
   .user-chip {

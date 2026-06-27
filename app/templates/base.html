@@ -101,9 +101,10 @@
           </header>
           {% include "macros/flashes.html" %}
           {% block content %}{% endblock %}
-        </main>
-      </div>
-    {% else %}
+	        </main>
+	      </div>
+	      {% include "widgets/tools.html" %}
+	    {% else %}
       {% include "macros/flashes.html" %}
       {% block public_content %}
         <main class="main public-main">

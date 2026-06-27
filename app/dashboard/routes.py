@@ -1,7 +1,7 @@
 from datetime import date, timedelta
 from decimal import Decimal
 
-from flask import Blueprint, render_template
+from flask import Blueprint, jsonify, render_template, request
 from flask_login import login_required
 
 from app.core.company_context import active_company
@@ -16,9 +16,20 @@ from app.models import (
     StockBook,
 )
 from app.services.stock import available_quantity, available_value
+from app.services.calendar_events import build_calendar_events
 from app.services.transactions import pending_transfer_summary
 
 bp = Blueprint("dashboard", __name__, url_prefix="/dashboard")
+
+
+def _date_arg(name, default):
+    value = request.args.get(name)
+    if not value:
+        return default
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return default
 
 
 @bp.route("/")
@@ -99,3 +110,17 @@ def index():
         low_stock_count=len(low_stock),
         inter_company_pending=inter_company_pending,
     )
+
+
+@bp.route("/calendar-events")
+@login_required
+@require_permission("dashboard", "view")
+def calendar_events():
+    today = date.today()
+    start = _date_arg("start", today.replace(day=1))
+    end = _date_arg("end", start + timedelta(days=40))
+    if start > end:
+        start, end = end, start
+    company = active_company()
+    events = build_calendar_events(start, end, company.id if company else None)
+    return jsonify({"events": events, "start": start.isoformat(), "end": end.isoformat()})
