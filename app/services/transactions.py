@@ -50,6 +50,12 @@ def _line_total(quantity, rate, gst_percent, taxable=True):
     return subtotal, gst_amount, money(subtotal + gst_amount)
 
 
+def _line_gst_percent(row, item, taxable):
+    if not taxable:
+        return Decimal("0.00")
+    return Decimal(row.get("gst_percent") or item.gst_percent or 0)
+
+
 def _clean_lines(lines):
     clean = []
     for line in lines:
@@ -151,6 +157,28 @@ def _line_rows_by_id(lines, existing_lines, label):
             raise ValueError(f"{label} edit can update existing item lines only.")
         ordered.append((existing[line_id], row))
     return ordered
+
+
+def _line_rows_for_edit(lines, existing_lines, label):
+    rows = _clean_lines(lines)
+    existing = {str(line.id): line for line in existing_lines}
+    seen = set()
+    ordered = []
+    new_rows = []
+    for row in rows:
+        line_id = str(row.get("line_id") or "")
+        if not line_id:
+            new_rows.append(row)
+            continue
+        if line_id not in existing:
+            raise ValueError(f"{label} edit can add new item lines, but cannot remove existing item lines.")
+        if line_id in seen:
+            raise ValueError(f"Duplicate {label.lower()} item line submitted.")
+        seen.add(line_id)
+        ordered.append((existing[line_id], row))
+    if set(existing) - seen:
+        raise ValueError(f"{label} edit can add new item lines, but cannot remove existing item lines.")
+    return ordered, new_rows
 
 
 def _void_reference(reference, record_id):
@@ -410,7 +438,7 @@ def create_purchase(data, lines, user):
         rate = Decimal(row.get("rate") or "0")
         if rate < Decimal("0"):
             raise ValueError("Rate cannot be negative.")
-        gst_percent = Decimal(row.get("gst_percent") or item.gst_percent or 0)
+        gst_percent = _line_gst_percent(row, item, taxable)
         subtotal, gst_amount, line_total = _line_total(quantity, rate, gst_percent, taxable)
         line = PurchaseLine(
             purchase_id=purchase.id,
@@ -612,7 +640,7 @@ def update_purchase_lines(purchase, lines, data, user):
         }
         for line in purchase.lines
     ]
-    ordered = _line_rows_by_id(lines, purchase.lines, "Purchase")
+    ordered, new_rows = _line_rows_for_edit(lines, purchase.lines, "Purchase")
     subtotal_total = Decimal("0.00")
     gst_total = Decimal("0.00")
     grand_total = Decimal("0.00")
@@ -623,7 +651,7 @@ def update_purchase_lines(purchase, lines, data, user):
         rate = Decimal(row.get("rate"))
         if rate <= Decimal("0"):
             raise ValueError("Rate must be greater than zero.")
-        gst_percent = Decimal(row.get("gst_percent") or item.gst_percent or 0)
+        gst_percent = _line_gst_percent(row, item, taxable)
         changed = (
             item.id != line.item_id
             or qty(line.quantity) != quantity
@@ -661,6 +689,43 @@ def update_purchase_lines(purchase, lines, data, user):
                 layer.available_value = money(quantity * rate)
                 layer.status = layer_status(layer)
 
+        subtotal_total = money(subtotal_total + subtotal)
+        gst_total = money(gst_total + gst_amount)
+        grand_total = money(grand_total + line_total)
+
+    for row in new_rows:
+        item = active_item(row.get("item_id"))
+        quantity = positive_qty(row.get("quantity"))
+        rate = Decimal(row.get("rate"))
+        if rate <= Decimal("0"):
+            raise ValueError("Rate must be greater than zero.")
+        gst_percent = _line_gst_percent(row, item, taxable)
+        subtotal, gst_amount, line_total = _line_total(quantity, rate, gst_percent, taxable)
+        line = PurchaseLine(
+            purchase=purchase,
+            item_id=item.id,
+            quantity=quantity,
+            rate=rate,
+            gst_percent=gst_percent,
+            subtotal=subtotal,
+            gst_amount=gst_amount,
+            line_total=line_total,
+        )
+        db.session.add(line)
+        db.session.flush()
+        create_fifo_layer(
+            purchase.company_id,
+            purchase.stock_book_id,
+            item.id,
+            "PURCHASE",
+            purchase.id,
+            line.id,
+            purchase.bill_number,
+            purchase.bill_date,
+            quantity,
+            rate,
+            getattr(user, "id", None),
+        )
         subtotal_total = money(subtotal_total + subtotal)
         gst_total = money(gst_total + gst_amount)
         grand_total = money(grand_total + line_total)
@@ -745,7 +810,7 @@ def create_sale(data, lines, user):
         sale_rate = Decimal(row.get("rate"))
         if sale_rate <= Decimal("0"):
             raise ValueError("Sale rate must be greater than zero.")
-        gst_percent = Decimal(row.get("gst_percent") or item.gst_percent or 0)
+        gst_percent = _line_gst_percent(row, item, taxable)
         subtotal, gst_amount, line_total = _line_total(quantity, sale_rate, gst_percent, taxable)
         line = SaleLine(
             sale_id=sale.id,
@@ -886,8 +951,8 @@ def update_sale_lines(sale, lines, user):
         }
         for line in sale.lines
     ]
-    ordered = _line_rows_by_id(lines, sale.lines, "Sale")
-    changed = False
+    ordered, new_rows = _line_rows_for_edit(lines, sale.lines, "Sale")
+    changed = bool(new_rows)
     parsed = []
     for line, row in ordered:
         item = active_item(row.get("item_id") or line.item_id)
@@ -895,7 +960,7 @@ def update_sale_lines(sale, lines, user):
         sale_rate = Decimal(row.get("rate"))
         if sale_rate <= Decimal("0"):
             raise ValueError("Sale rate must be greater than zero.")
-        gst_percent = Decimal(row.get("gst_percent") or item.gst_percent or 0)
+        gst_percent = _line_gst_percent(row, item, taxable)
         if (
             item.id != line.item_id
             or qty(line.quantity) != quantity
@@ -904,6 +969,16 @@ def update_sale_lines(sale, lines, user):
         ):
             changed = True
         parsed.append((line, item, quantity, sale_rate, gst_percent))
+
+    parsed_new = []
+    for row in new_rows:
+        item = active_item(row.get("item_id"))
+        quantity = positive_qty(row.get("quantity"))
+        sale_rate = Decimal(row.get("rate"))
+        if sale_rate <= Decimal("0"):
+            raise ValueError("Sale rate must be greater than zero.")
+        gst_percent = _line_gst_percent(row, item, taxable)
+        parsed_new.append((item, quantity, sale_rate, gst_percent))
 
     if changed and sale.paid_amount:
         raise ValueError("Sale items cannot be changed after receipt allocation.")
@@ -914,6 +989,24 @@ def update_sale_lines(sale, lines, user):
     StockLedgerEntry.query.filter_by(
         transaction_type="SALE", transaction_id=sale.id
     ).delete(synchronize_session=False)
+
+    for item, quantity, sale_rate, gst_percent in parsed_new:
+        subtotal, gst_amount, line_total = _line_total(quantity, sale_rate, gst_percent, taxable)
+        line = SaleLine(
+            sale=sale,
+            item_id=item.id,
+            quantity=quantity,
+            sale_rate=sale_rate,
+            gst_percent=gst_percent,
+            subtotal=subtotal,
+            gst_amount=gst_amount,
+            line_total=line_total,
+            fifo_cost=Decimal("0.00"),
+            gross_profit=subtotal,
+        )
+        db.session.add(line)
+        db.session.flush()
+        parsed.append((line, item, quantity, sale_rate, gst_percent))
 
     subtotal_total = Decimal("0.00")
     gst_total = Decimal("0.00")

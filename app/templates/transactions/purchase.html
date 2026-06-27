@@ -45,6 +45,7 @@
             <td class="actions">
               <a class="table-action" href="{{ url_for('transactions.purchase_export', purchase_id=row.id, fmt='pdf') }}">PDF</a>
               <a class="table-action" href="{{ url_for('transactions.purchase_export', purchase_id=row.id, fmt='xlsx') }}">XL</a>
+              <a class="table-action" href="{{ url_for('transactions.purchase_print', purchase_id=row.id) }}" target="_blank" rel="noopener">Print</a>
               {% if can(current_user, 'purchase', 'edit') or can(current_user, 'purchase', 'create') %}
                 <a class="table-action" href="{{ url_for('transactions.purchase_edit', purchase_id=row.id) }}">Edit</a>
               {% endif %}

@@ -13,8 +13,12 @@
         {% endfor %}
       </select>
       {% if active_company %}<input type="hidden" name="company_id" value="{{ active_company.id }}">{% endif %}
+      <input type="date" name="date_from" value="{{ date_from }}" aria-label="Period from">
+      <input type="date" name="date_to" value="{{ date_to }}" aria-label="Period to">
       <button class="secondary-button" type="submit">Apply</button>
+      <a class="secondary-button" href="{{ url_for('masters.supplier_transaction_detail', supplier_id=supplier.id, company_id=selected_company_id or '') }}">This FY</a>
       <span class="spacer"></span>
+      <span class="muted-copy">Period {{ date_from }} to {{ date_to }}</span>
       {% if can(current_user, 'suppliers', 'edit') %}
         <a class="primary-button" href="{{ url_for('masters.edit_record', kind='suppliers', record_id=supplier.id) }}">Edit Supplier</a>
       {% endif %}
@@ -88,7 +92,7 @@
             <tr>
               <td>{{ purchase.bill_date }}</td><td>{{ purchase.company.code }}</td><td>{{ purchase.bill_number }}</td><td>{{ purchase.purchase_type }}</td>
               <td>{{ fmt_money(purchase.grand_total) }}</td><td>{{ fmt_money(purchase.paid_amount) }}</td><td>{{ fmt_money(purchase.balance_amount) }}</td><td>{{ purchase.payment_status }}</td>
-              <td class="actions"><a class="table-action" href="{{ url_for('transactions.purchase_edit', purchase_id=purchase.id) }}">Edit</a><a class="table-action" href="{{ url_for('transactions.purchase_export', purchase_id=purchase.id, fmt='pdf') }}">PDF</a></td>
+              <td class="actions"><a class="table-action" href="{{ url_for('transactions.purchase_edit', purchase_id=purchase.id) }}">Edit</a><a class="table-action" href="{{ url_for('transactions.purchase_export', purchase_id=purchase.id, fmt='pdf') }}">PDF</a><a class="table-action" href="{{ url_for('transactions.purchase_print', purchase_id=purchase.id) }}" target="_blank" rel="noopener">Print</a></td>
             </tr>
           {% else %}
             <tr><td colspan="9" class="empty">No purchases found.</td></tr>
@@ -132,7 +136,7 @@
           {% for payment in profile.payments %}
             <tr>
               <td>{{ payment.payment_date }}</td><td>{{ payment.company.code }}</td><td>{{ payment.mode }}</td><td>{{ fmt_money(payment.total_amount) }}</td><td>{{ fmt_money(payment.allocated_amount) }}</td><td>{{ fmt_money(payment.unallocated_amount) }}</td><td>{{ payment.reference_number or '' }}</td>
-              <td class="actions"><a class="table-action" href="{{ url_for('payments.payment_edit', payment_id=payment.id) }}">Edit</a><a class="table-action" href="{{ url_for('payments.payment_export', payment_id=payment.id, fmt='pdf') }}">PDF</a></td>
+              <td class="actions"><a class="table-action" href="{{ url_for('payments.payment_edit', payment_id=payment.id) }}">Edit</a><a class="table-action" href="{{ url_for('payments.payment_export', payment_id=payment.id, fmt='pdf') }}">PDF</a><a class="table-action" href="{{ url_for('payments.payment_print', payment_id=payment.id) }}" target="_blank" rel="noopener">Print</a></td>
             </tr>
           {% else %}
             <tr><td colspan="8" class="empty">No payments found.</td></tr>

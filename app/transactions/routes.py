@@ -30,6 +30,7 @@ from app.services.entry_exports import (
     sale_rows,
     transfer_rows,
     payment_rows,
+    print_entry,
 )
 from app.services.transactions import (
     create_opening_advance_paid,
@@ -112,6 +113,11 @@ def export_response(title_rows, fmt):
         return export_entry(title, rows, fmt)
     except ValueError:
         abort(404)
+
+
+def print_response(title_rows):
+    title, rows = title_rows
+    return print_entry(title, rows)
 
 
 @bp.route("/reference/<kind>")
@@ -198,6 +204,17 @@ def purchase_export(purchase_id, fmt):
     return export_response(purchase_rows(purchase), fmt)
 
 
+@bp.route("/purchase/<int:purchase_id>/print")
+@login_required
+@require_permission("purchase", "view")
+def purchase_print(purchase_id):
+    purchase = db.session.get(Purchase, purchase_id)
+    if not purchase:
+        abort(404)
+    require_active_company_document(purchase.company_id)
+    return print_response(purchase_rows(purchase))
+
+
 @bp.route("/sale", methods=["GET", "POST"])
 @login_required
 @require_permission("sale", "view")
@@ -274,6 +291,17 @@ def sale_export(sale_id, fmt):
         abort(404)
     require_active_company_document(sale.company_id)
     return export_response(sale_rows(sale), fmt)
+
+
+@bp.route("/sale/<int:sale_id>/print")
+@login_required
+@require_permission("sale", "view")
+def sale_print(sale_id):
+    sale = db.session.get(Sale, sale_id)
+    if not sale:
+        abort(404)
+    require_active_company_document(sale.company_id)
+    return print_response(sale_rows(sale))
 
 
 @bp.route("/transfer", methods=["GET", "POST"])
@@ -361,6 +389,17 @@ def transfer_export(transfer_id, fmt):
         abort(404)
     require_active_company_document(transfer.from_company_id, transfer.to_company_id)
     return export_response(transfer_rows(transfer), fmt)
+
+
+@bp.route("/transfer/<int:transfer_id>/print")
+@login_required
+@require_permission("transfer", "view")
+def transfer_print(transfer_id):
+    transfer = db.session.get(InterCompanyTransfer, transfer_id)
+    if not transfer:
+        abort(404)
+    require_active_company_document(transfer.from_company_id, transfer.to_company_id)
+    return print_response(transfer_rows(transfer))
 
 
 @bp.route("/opening", methods=["GET"])
@@ -458,6 +497,17 @@ def opening_stock_export(opening_id, fmt):
     return export_response(opening_stock_rows(opening), fmt)
 
 
+@bp.route("/opening/stock/<int:opening_id>/print")
+@login_required
+@require_permission("opening", "view")
+def opening_stock_print(opening_id):
+    opening = db.session.get(OpeningStock, opening_id)
+    if not opening:
+        abort(404)
+    require_active_company_document(opening.company_id)
+    return print_response(opening_stock_rows(opening))
+
+
 @bp.route("/opening/stock/<int:opening_id>/edit", methods=["GET", "POST"])
 @login_required
 def opening_stock_edit(opening_id):
@@ -510,6 +560,17 @@ def opening_receivable_export(receivable_id, fmt):
         abort(404)
     require_active_company_document(receivable.company_id)
     return export_response(receivable_rows(receivable), fmt)
+
+
+@bp.route("/opening/receivable/<int:receivable_id>/print")
+@login_required
+@require_permission("opening", "view")
+def opening_receivable_print(receivable_id):
+    receivable = db.session.get(Receivable, receivable_id)
+    if not receivable:
+        abort(404)
+    require_active_company_document(receivable.company_id)
+    return print_response(receivable_rows(receivable))
 
 
 @bp.route("/opening/receivable/<int:receivable_id>/edit", methods=["GET", "POST"])
@@ -566,6 +627,17 @@ def opening_payable_export(payable_id, fmt):
     return export_response(payable_rows(payable), fmt)
 
 
+@bp.route("/opening/payable/<int:payable_id>/print")
+@login_required
+@require_permission("opening", "view")
+def opening_payable_print(payable_id):
+    payable = db.session.get(Payable, payable_id)
+    if not payable:
+        abort(404)
+    require_active_company_document(payable.company_id)
+    return print_response(payable_rows(payable))
+
+
 @bp.route("/opening/payable/<int:payable_id>/edit", methods=["GET", "POST"])
 @login_required
 def opening_payable_edit(payable_id):
@@ -618,6 +690,17 @@ def opening_advance_export(payment_id, fmt):
         abort(404)
     require_active_company_document(payment.company_id)
     return export_response(payment_rows(payment), fmt)
+
+
+@bp.route("/opening/advance/<int:payment_id>/print")
+@login_required
+@require_permission("opening", "view")
+def opening_advance_print(payment_id):
+    payment = db.session.get(Payment, payment_id)
+    if not payment:
+        abort(404)
+    require_active_company_document(payment.company_id)
+    return print_response(payment_rows(payment))
 
 
 @bp.route("/opening/advance/<int:payment_id>/edit", methods=["GET", "POST"])

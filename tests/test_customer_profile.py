@@ -79,6 +79,34 @@ def test_customer_list_search_clickable_names_and_profile_page(client, app):
     assert f"/transactions/sale/{sale_id}/export/pdf" in detail_html
 
 
+def test_customer_profile_period_filters_invoices_and_summary(client, app):
+    with app.app_context():
+        customer_id, _sale_id = seed_customer_profile_data()
+        data = ids()
+        create_sale(
+            {
+                "company_id": data["ai"].id,
+                "stock_book_id": data["ai_gst"].id,
+                "customer_id": customer_id,
+                "sale_type": "GST",
+                "invoice_number": "PROFILE-OLD-INV",
+                "invoice_date": "2026-03-15",
+            },
+            [{"item_id": data["item"].id, "quantity": "1", "rate": "50", "gst_percent": "0"}],
+            admin(),
+        )
+        db.session.commit()
+
+    login(client)
+    response = client.get(f"/masters/customers/{customer_id}?date_from=2026-06-01&date_to=2026-06-30")
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "Period 2026-06-01 to 2026-06-30" in html
+    assert "PROFILE-INV-1" in html
+    assert "PROFILE-OLD-INV" not in html
+
+
 def test_customer_list_includes_supplier_master_records(client, app):
     with app.app_context():
         data = ids()

@@ -1,3 +1,5 @@
+from flask import render_template
+
 from app.core.formatting import fmt_money, fmt_qty
 from app.extensions import db
 from app.models import User
@@ -10,6 +12,10 @@ HEADERS = ["Section", "Field", "Value"]
 def export_entry(title, rows, fmt):
     fmt = normalize_export_format(fmt)
     return export_table(title, HEADERS, rows, fmt)
+
+
+def print_entry(title, rows):
+    return render_template("print/entry.html", title=title, headers=HEADERS, rows=rows)
 
 
 def normalize_export_format(fmt):

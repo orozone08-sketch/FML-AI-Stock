@@ -3,6 +3,7 @@ from flask_login import login_required
 
 from app.core.company_context import active_company
 from app.core.formatting import fmt_money, fmt_qty
+from app.core.periods import period_from_args
 from app.core.security import require_permission
 from app.services.customer_profile import customer_master_rows, customer_profile
 
@@ -41,7 +42,8 @@ def customer_json(customer):
 
 
 def profile_or_404(customer_id):
-    profile = customer_profile(customer_id, requested_company_id())
+    date_from, date_to = period_from_args(request.args)
+    profile = customer_profile(customer_id, requested_company_id(), date_from, date_to)
     if not profile:
         abort(404)
     return profile

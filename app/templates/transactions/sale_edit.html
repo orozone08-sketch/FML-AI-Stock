@@ -5,6 +5,7 @@
   <section class="panel">
     <form method="post" class="form-grid wide">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="sale_type" value="{{ sale.sale_type }}">
       <label>Company
         <input value="{{ sale.company.code }} - {{ sale.company.name }}" disabled>
       </label>
@@ -65,6 +66,7 @@
             </div>
           {% endfor %}
         </div>
+        <button type="button" class="secondary-button" data-add-line>Add line</button>
       </div>
       <div class="form-actions full-span">
         <a class="secondary-button" href="{{ url_for('transactions.sale') }}">Cancel</a>

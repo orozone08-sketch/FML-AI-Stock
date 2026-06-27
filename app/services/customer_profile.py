@@ -78,7 +78,7 @@ def customer_search_text(customer, companies):
     ]
     for company in companies:
         fields.extend([company.code, company.name])
-    return " ".join(str(field or "") for field in fields).lower()
+    return " ".join(str(field or "") for field in fields).casefold()
 
 
 def supplier_search_text(supplier, companies):
@@ -94,7 +94,7 @@ def supplier_search_text(supplier, companies):
     ]
     for company in companies:
         fields.extend([company.code, company.name])
-    return " ".join(str(field or "") for field in fields).lower()
+    return " ".join(str(field or "") for field in fields).casefold()
 
 
 def row_companies_for_party(linked_company_ids, companies, company_id=None):
@@ -113,7 +113,7 @@ def customer_master_rows(search="", company_id=None, active_filter="active", inc
     customers = query.order_by(Customer.name, Customer.code).all()
     company_map = customer_company_map()
     companies = company_lookup()
-    search = (search or "").strip().lower()
+    search = (search or "").strip().casefold()
     rows = []
     for customer in customers:
         linked_company_ids = company_map.get(customer.id, set())
@@ -156,7 +156,7 @@ def customer_master_rows(search="", company_id=None, active_filter="active", inc
                     "company_label": ", ".join(company.code for company in row_companies) or "All",
                 }
             )
-    rows.sort(key=lambda row: (row["identity"].lower(), row["kind"]))
+    rows.sort(key=lambda row: (row["identity"].casefold(), row["kind"]))
     return rows
 
 
@@ -174,31 +174,47 @@ def paginate_rows(rows, page, per_page):
     }
 
 
-def customer_invoices(customer_id, company_id=None):
+def customer_invoices(customer_id, company_id=None, date_from=None, date_to=None):
     query = Sale.query.filter_by(customer_id=customer_id, is_void=False)
     if company_id:
         query = query.filter(Sale.company_id == company_id)
+    if date_from:
+        query = query.filter(Sale.invoice_date >= date_from)
+    if date_to:
+        query = query.filter(Sale.invoice_date <= date_to)
     return query.order_by(Sale.invoice_date.desc(), Sale.id.desc()).all()
 
 
-def customer_receivables(customer_id, company_id=None):
+def customer_receivables(customer_id, company_id=None, date_from=None, date_to=None):
     query = Receivable.query.filter_by(customer_id=customer_id)
     if company_id:
         query = query.filter(Receivable.company_id == company_id)
+    if date_from:
+        query = query.filter(Receivable.document_date >= date_from)
+    if date_to:
+        query = query.filter(Receivable.document_date <= date_to)
     return query.order_by(Receivable.document_date.desc(), Receivable.id.desc()).all()
 
 
-def customer_payments(customer_id, company_id=None):
+def customer_payments(customer_id, company_id=None, date_from=None, date_to=None):
     query = Payment.query.filter_by(customer_id=customer_id)
     if company_id:
         query = query.filter(Payment.company_id == company_id)
+    if date_from:
+        query = query.filter(Payment.payment_date >= date_from)
+    if date_to:
+        query = query.filter(Payment.payment_date <= date_to)
     return query.order_by(Payment.payment_date.desc(), Payment.id.desc()).all()
 
 
-def customer_stock_rows(customer_id, company_id=None):
+def customer_stock_rows(customer_id, company_id=None, date_from=None, date_to=None):
     query = SaleLine.query.join(Sale).filter(Sale.customer_id == customer_id, Sale.is_void.is_(False))
     if company_id:
         query = query.filter(Sale.company_id == company_id)
+    if date_from:
+        query = query.filter(Sale.invoice_date >= date_from)
+    if date_to:
+        query = query.filter(Sale.invoice_date <= date_to)
     rows = []
     for line in query.order_by(Sale.invoice_date.desc(), Sale.id.desc(), SaleLine.id).all():
         rows.append(
@@ -227,14 +243,14 @@ def customer_documents(invoices):
     ]
 
 
-def customer_profile(customer_id, company_id=None):
+def customer_profile(customer_id, company_id=None, date_from=None, date_to=None):
     customer = db.session.get(Customer, customer_id)
     if not customer:
         return None
-    invoices = customer_invoices(customer_id, company_id)
-    receivables = customer_receivables(customer_id, company_id)
-    payments = customer_payments(customer_id, company_id)
-    stock_rows = customer_stock_rows(customer_id, company_id)
+    invoices = customer_invoices(customer_id, company_id, date_from, date_to)
+    receivables = customer_receivables(customer_id, company_id, date_from, date_to)
+    payments = customer_payments(customer_id, company_id, date_from, date_to)
+    stock_rows = customer_stock_rows(customer_id, company_id, date_from, date_to)
     companies_by_id = company_lookup()
     if company_id:
         company_ids = {int(company_id)} if int(company_id) in companies_by_id else set()

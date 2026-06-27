@@ -2,7 +2,7 @@ from app.extensions import db
 import pytest
 from decimal import Decimal
 
-from app.models import FIFOLayer, Item, Payable, Purchase, StockLedgerEntry
+from app.models import FIFOLayer, Item, Payable, Purchase, PurchaseLine, StockLedgerEntry, StockBook
 from app.services.stock import available_quantity
 from app.services.transactions import create_purchase, create_sale, update_purchase_header, update_purchase_lines
 from tests.test_fifo_workflows import admin, ids
@@ -148,6 +148,84 @@ def test_purchase_edit_updates_item_quantity_rate_and_stock(app):
         assert ledger.quantity_in == 3
         assert ledger.rate == 125
         assert available_quantity(data["ai"].id, data["ai_gst"].id, data["item"].id) == 3
+
+
+def test_cash_purchase_forces_zero_gst_on_create_and_edit(app):
+    with app.app_context():
+        data = ids()
+        cash_book = StockBook.query.filter_by(code="AI_CASH").one()
+        purchase = create_purchase(
+            {
+                "company_id": data["ai"].id,
+                "stock_book_id": cash_book.id,
+                "supplier_id": data["supplier"].id,
+                "purchase_type": "CASH",
+                "bill_number": "CASH-GST-BILL",
+                "bill_date": "2026-06-01",
+            },
+            [{"item_id": data["item"].id, "quantity": "2", "rate": "100", "gst_percent": "18"}],
+            admin(),
+        )
+        db.session.flush()
+        line = purchase.lines[0]
+
+        assert purchase.subtotal == 200
+        assert purchase.gst_total == 0
+        assert purchase.grand_total == 200
+        assert line.gst_percent == 0
+        assert line.gst_amount == 0
+
+        update_purchase_lines(
+            purchase,
+            [{"line_id": line.id, "item_id": data["item"].id, "quantity": "3", "rate": "125", "gst_percent": "18"}],
+            {"payment_status": "UNPAID"},
+            admin(),
+        )
+        db.session.commit()
+
+        assert purchase.subtotal == 375
+        assert purchase.gst_total == 0
+        assert purchase.grand_total == 375
+        assert line.gst_percent == 0
+        assert line.gst_amount == 0
+
+
+def test_purchase_edit_can_add_item_line_before_stock_is_consumed(app):
+    with app.app_context():
+        data = ids()
+        replacement_item = Item.query.filter_by(code="2").one()
+        purchase = create_purchase(
+            {
+                "company_id": data["ai"].id,
+                "stock_book_id": data["ai_gst"].id,
+                "supplier_id": data["supplier"].id,
+                "purchase_type": "GST",
+                "bill_number": "ADD-LINE-BILL",
+                "bill_date": "2026-06-01",
+            },
+            [{"item_id": data["item"].id, "quantity": "1", "rate": "100", "gst_percent": "0"}],
+            admin(),
+        )
+        db.session.flush()
+        line = purchase.lines[0]
+
+        update_purchase_lines(
+            purchase,
+            [
+                {"line_id": line.id, "item_id": data["item"].id, "quantity": "1", "rate": "100", "gst_percent": "0"},
+                {"item_id": replacement_item.id, "quantity": "2", "rate": "50", "gst_percent": "0"},
+            ],
+            {"payment_status": "UNPAID"},
+            admin(),
+        )
+        db.session.commit()
+
+        lines = PurchaseLine.query.filter_by(purchase_id=purchase.id).order_by(PurchaseLine.id).all()
+        layers = FIFOLayer.query.filter_by(source_type="PURCHASE", source_id=purchase.id).order_by(FIFOLayer.id).all()
+        assert len(lines) == 2
+        assert len(layers) == 2
+        assert purchase.grand_total == 200
+        assert available_quantity(data["ai"].id, data["ai_gst"].id, replacement_item.id) == 2
 
 
 def test_purchase_edit_can_change_item_before_stock_is_consumed(app):

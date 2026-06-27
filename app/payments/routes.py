@@ -8,7 +8,7 @@ from app.core.formatting import money
 from app.core.security import can, require_permission
 from app.extensions import db
 from app.models import Company, Customer, Payable, Payment, PaymentMode, Receivable, Supplier
-from app.services.entry_exports import export_entry, payment_rows
+from app.services.entry_exports import export_entry, payment_rows, print_entry
 from app.services.customer_ledger import customer_ledger_entries
 from app.services.customer_profile import customer_profile
 from app.services.outstanding import grouped_party_outstanding, outstanding_summary_from_rows
@@ -151,6 +151,18 @@ def payment_export(payment_id, fmt):
         return export_entry(title, rows, fmt)
     except ValueError:
         abort(404)
+
+
+@bp.route("/payments/<int:payment_id>/print")
+@login_required
+@require_permission("payments", "view")
+def payment_print(payment_id):
+    payment = db.session.get(Payment, payment_id)
+    if not payment:
+        abort(404)
+    require_active_company_document(payment.company_id)
+    title, rows = payment_rows(payment)
+    return print_entry(title, rows)
 
 
 def allocated_target_ids(payment, target_type):

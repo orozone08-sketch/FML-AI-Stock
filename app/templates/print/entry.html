@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }} - Print</title>
+  <style>
+    body { font-family: Arial, sans-serif; color: #101828; margin: 28px; }
+    .print-actions { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 18px; }
+    button, a { border: 1px solid #B98A12; border-radius: 6px; background: #fff; color: #5B4308; padding: 9px 14px; font-weight: 700; text-decoration: none; cursor: pointer; }
+    h1 { margin: 0 0 6px; font-size: 24px; }
+    .meta { margin-bottom: 18px; color: #667085; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { border: 1px solid #D0D5DD; padding: 8px 10px; text-align: left; vertical-align: top; }
+    th { background: #F2F4F7; color: #344054; text-transform: uppercase; font-size: 11px; }
+    tr:nth-child(even) td { background: #FCFCFD; }
+    @media print {
+      body { margin: 12mm; }
+      .print-actions { display: none; }
+      a { color: inherit; }
+    }
+  </style>
+</head>
+<body>
+  <div class="print-actions">
+    <button type="button" onclick="window.print()">Print</button>
+    <a href="javascript:history.back()">Back</a>
+  </div>
+  <h1>{{ title }}</h1>
+  <div class="meta">Generated from FAstockFlow</div>
+  <table>
+    <thead>
+      <tr>{% for header in headers %}<th>{{ header }}</th>{% endfor %}</tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+        <tr>{% for value in row %}<td>{{ value }}</td>{% endfor %}</tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <script>
+    window.addEventListener("load", () => window.setTimeout(() => window.print(), 250));
+  </script>
+</body>
+</html>

@@ -13,8 +13,12 @@
         {% endfor %}
       </select>
       {% if active_company %}<input type="hidden" name="company_id" value="{{ active_company.id }}">{% endif %}
+      <input type="date" name="date_from" value="{{ date_from }}" aria-label="Period from">
+      <input type="date" name="date_to" value="{{ date_to }}" aria-label="Period to">
       <button class="secondary-button" type="submit">Apply</button>
+      <a class="secondary-button" href="{{ url_for('masters.customer_detail', customer_id=customer.id, company_id=selected_company_id or '') }}">This FY</a>
       <span class="spacer"></span>
+      <span class="muted-copy">Period {{ date_from }} to {{ date_to }}</span>
       {% if can(current_user, 'customers', 'edit') %}
         <a class="primary-button" href="{{ url_for('masters.edit_record', kind='customers', record_id=customer.id) }}">Edit Customer</a>
       {% endif %}
@@ -76,7 +80,7 @@
         <thead><tr><th>Date</th><th>Company</th><th>Invoice</th><th>Type</th><th>Total</th><th>Paid</th><th>Pending</th><th>Status</th><th>Actions</th></tr></thead>
         <tbody>
           {% for sale in profile.invoices %}
-            <tr><td>{{ sale.invoice_date }}</td><td>{{ sale.company.code }}</td><td>{{ sale.invoice_number }}</td><td>{{ sale.sale_type }}</td><td>{{ fmt_money(sale.grand_total) }}</td><td>{{ fmt_money(sale.paid_amount) }}</td><td>{{ fmt_money(sale.balance_amount) }}</td><td>{{ sale.payment_status }}</td><td class="actions"><a class="table-action" href="{{ url_for('transactions.sale_edit', sale_id=sale.id) }}">Edit</a><a class="table-action" href="{{ url_for('transactions.sale_export', sale_id=sale.id, fmt='pdf') }}">PDF</a></td></tr>
+            <tr><td>{{ sale.invoice_date }}</td><td>{{ sale.company.code }}</td><td>{{ sale.invoice_number }}</td><td>{{ sale.sale_type }}</td><td>{{ fmt_money(sale.grand_total) }}</td><td>{{ fmt_money(sale.paid_amount) }}</td><td>{{ fmt_money(sale.balance_amount) }}</td><td>{{ sale.payment_status }}</td><td class="actions"><a class="table-action" href="{{ url_for('transactions.sale_edit', sale_id=sale.id) }}">Edit</a><a class="table-action" href="{{ url_for('transactions.sale_export', sale_id=sale.id, fmt='pdf') }}">PDF</a><a class="table-action" href="{{ url_for('transactions.sale_print', sale_id=sale.id) }}" target="_blank" rel="noopener">Print</a></td></tr>
           {% else %}
             <tr><td colspan="9" class="empty">No invoices.</td></tr>
           {% endfor %}
@@ -92,7 +96,7 @@
         <thead><tr><th>Challan No.</th><th>Challan Date</th><th>Item</th><th>Quantity</th><th>Weight</th><th>Status</th><th>Actions</th></tr></thead>
         <tbody>
           {% for row in profile.stock_rows %}
-            <tr><td>{{ row.challan_number }}</td><td>{{ row.challan_date }}</td><td>{{ row.item }}</td><td>{{ fmt_qty(row.quantity) }}</td><td>{{ row.weight }}</td><td>{{ row.status }}</td><td><a class="table-action" href="{{ url_for('transactions.sale_export', sale_id=row.sale.id, fmt='pdf') }}">PDF</a></td></tr>
+            <tr><td>{{ row.challan_number }}</td><td>{{ row.challan_date }}</td><td>{{ row.item }}</td><td>{{ fmt_qty(row.quantity) }}</td><td>{{ row.weight }}</td><td>{{ row.status }}</td><td><a class="table-action" href="{{ url_for('transactions.sale_export', sale_id=row.sale.id, fmt='pdf') }}">PDF</a><a class="table-action" href="{{ url_for('transactions.sale_print', sale_id=row.sale.id) }}" target="_blank" rel="noopener">Print</a></td></tr>
           {% else %}
             <tr><td colspan="7" class="empty">No challan rows.</td></tr>
           {% endfor %}
@@ -114,12 +118,12 @@
     <div class="panel-title"><h2>Payments</h2><span class="muted-copy">{{ profile.payments|length }} payment{{ '' if profile.payments|length == 1 else 's' }}</span></div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Date</th><th>Company</th><th>Mode</th><th>Amount</th><th>Allocated</th><th>Unallocated</th><th>Reference</th><th>Remarks</th></tr></thead>
+        <thead><tr><th>Date</th><th>Company</th><th>Mode</th><th>Amount</th><th>Allocated</th><th>Unallocated</th><th>Reference</th><th>Remarks</th><th>Actions</th></tr></thead>
         <tbody>
           {% for payment in profile.payments %}
-            <tr><td>{{ payment.payment_date }}</td><td>{{ payment.company.code }}</td><td>{{ payment.mode }}</td><td>{{ fmt_money(payment.total_amount) }}</td><td>{{ fmt_money(payment.allocated_amount) }}</td><td>{{ fmt_money(payment.unallocated_amount) }}</td><td>{{ payment.reference_number or '' }}</td><td>{{ payment.remarks or '' }}</td></tr>
+            <tr><td>{{ payment.payment_date }}</td><td>{{ payment.company.code }}</td><td>{{ payment.mode }}</td><td>{{ fmt_money(payment.total_amount) }}</td><td>{{ fmt_money(payment.allocated_amount) }}</td><td>{{ fmt_money(payment.unallocated_amount) }}</td><td>{{ payment.reference_number or '' }}</td><td>{{ payment.remarks or '' }}</td><td class="actions"><a class="table-action" href="{{ url_for('payments.payment_export', payment_id=payment.id, fmt='pdf') }}">PDF</a><a class="table-action" href="{{ url_for('payments.payment_print', payment_id=payment.id) }}" target="_blank" rel="noopener">Print</a></td></tr>
           {% else %}
-            <tr><td colspan="8" class="empty">No payments.</td></tr>
+            <tr><td colspan="9" class="empty">No payments.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -133,7 +137,7 @@
         <thead><tr><th>Date</th><th>Type</th><th>Document</th><th>Actions</th></tr></thead>
         <tbody>
           {% for document in profile.documents %}
-            <tr><td>{{ document.date }}</td><td>{{ document.type }}</td><td>{{ document.label }}</td><td><a class="table-action" href="{{ url_for('transactions.sale_export', sale_id=document.sale.id, fmt='pdf') }}">Open PDF</a></td></tr>
+            <tr><td>{{ document.date }}</td><td>{{ document.type }}</td><td>{{ document.label }}</td><td><a class="table-action" href="{{ url_for('transactions.sale_export', sale_id=document.sale.id, fmt='pdf') }}">Open PDF</a><a class="table-action" href="{{ url_for('transactions.sale_print', sale_id=document.sale.id) }}" target="_blank" rel="noopener">Print</a></td></tr>
           {% else %}
             <tr><td colspan="4" class="empty">No generated documents.</td></tr>
           {% endfor %}

@@ -4,6 +4,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.core.company_context import active_company
 from app.core.formatting import dec, qty
+from app.core.periods import period_from_args
 from app.core.security import require_permission
 from app.extensions import db
 from app.models import Company, Customer, Item, StockBook, Supplier
@@ -141,7 +142,8 @@ def customer_detail(customer_id):
     config = config_or_404("customers")
     require_permission(config["module"], "view")(lambda: None)()
     selected_company_id = selected_customer_company_id()
-    profile = customer_profile(customer_id, selected_company_id)
+    date_from, date_to = period_from_args(request.args)
+    profile = customer_profile(customer_id, selected_company_id, date_from, date_to)
     if not profile:
         abort(404)
     companies = Company.query.filter_by(active=True).order_by(Company.code).all()
@@ -150,6 +152,8 @@ def customer_detail(customer_id):
         profile=profile,
         companies=companies,
         selected_company_id=selected_company_id,
+        date_from=date_from,
+        date_to=date_to,
     )
 
 
@@ -159,7 +163,8 @@ def supplier_transaction_detail(supplier_id):
     config = config_or_404("suppliers")
     require_permission(config["module"], "view")(lambda: None)()
     selected_company_id = selected_customer_company_id()
-    profile = supplier_transactions(supplier_id, selected_company_id)
+    date_from, date_to = period_from_args(request.args)
+    profile = supplier_transactions(supplier_id, selected_company_id, date_from, date_to)
     if not profile:
         abort(404)
     companies = Company.query.filter_by(active=True).order_by(Company.code).all()
@@ -168,6 +173,8 @@ def supplier_transaction_detail(supplier_id):
         profile=profile,
         companies=companies,
         selected_company_id=selected_company_id,
+        date_from=date_from,
+        date_to=date_to,
     )
 
 

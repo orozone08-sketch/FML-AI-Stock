@@ -4,6 +4,8 @@ from app.models import (
     Item,
     Receivable,
     Sale,
+    SaleLine,
+    StockBook,
     StockLedgerEntry,
 )
 from app.services.transactions import (
@@ -109,6 +111,105 @@ def test_sale_edit_updates_quantity_rate_totals_and_fifo(app):
         assert sale.fifo_cost == 300
         assert sale.gross_profit == 300
         assert available_quantity(data["ai"].id, data["ai_gst"].id, data["item"].id) == 7
+
+
+def test_cash_sale_forces_zero_gst_on_create_and_edit(app):
+    with app.app_context():
+        data = ids()
+        cash_book = StockBook.query.filter_by(code="AI_CASH").one()
+        create_opening_stock(
+            {
+                "company_id": data["ai"].id,
+                "stock_book_id": cash_book.id,
+                "reference_number": "CASH-GST-STOCK",
+                "opening_date": "2026-06-01",
+            },
+            [{"item_id": data["item"].id, "quantity": "10", "rate": "100"}],
+            admin(),
+        )
+        sale = create_sale(
+            {
+                "company_id": data["ai"].id,
+                "stock_book_id": cash_book.id,
+                "customer_id": data["customer"].id,
+                "sale_type": "CASH",
+                "invoice_number": "CASH-GST-INV",
+                "invoice_date": "2026-06-02",
+            },
+            [{"item_id": data["item"].id, "quantity": "2", "rate": "150", "gst_percent": "18"}],
+            admin(),
+        )
+        db.session.flush()
+        line = sale.lines[0]
+
+        assert sale.subtotal == 300
+        assert sale.gst_total == 0
+        assert sale.grand_total == 300
+        assert line.gst_percent == 0
+        assert line.gst_amount == 0
+
+        update_sale_lines(
+            sale,
+            [{"line_id": line.id, "item_id": data["item"].id, "quantity": "3", "rate": "200", "gst_percent": "18"}],
+            admin(),
+        )
+        db.session.commit()
+
+        assert sale.subtotal == 600
+        assert sale.gst_total == 0
+        assert sale.grand_total == 600
+        assert line.gst_percent == 0
+        assert line.gst_amount == 0
+
+
+def test_sale_edit_can_add_item_line_before_receipt_allocation(app):
+    with app.app_context():
+        data = ids()
+        replacement_item = Item.query.filter_by(code="2").one()
+        create_opening_stock(
+            {
+                "company_id": data["ai"].id,
+                "stock_book_id": data["ai_gst"].id,
+                "reference_number": "SALE-ADD-LINE-STOCK",
+                "opening_date": "2026-06-01",
+            },
+            [
+                {"item_id": data["item"].id, "quantity": "10", "rate": "100"},
+                {"item_id": replacement_item.id, "quantity": "10", "rate": "80"},
+            ],
+            admin(),
+        )
+        sale = create_sale(
+            {
+                "company_id": data["ai"].id,
+                "stock_book_id": data["ai_gst"].id,
+                "customer_id": data["customer"].id,
+                "sale_type": "GST",
+                "invoice_number": "SALE-ADD-LINE",
+                "invoice_date": "2026-06-02",
+            },
+            [{"item_id": data["item"].id, "quantity": "1", "rate": "100", "gst_percent": "0"}],
+            admin(),
+        )
+        db.session.flush()
+        line = sale.lines[0]
+
+        update_sale_lines(
+            sale,
+            [
+                {"line_id": line.id, "item_id": data["item"].id, "quantity": "1", "rate": "100", "gst_percent": "0"},
+                {"item_id": replacement_item.id, "quantity": "2", "rate": "50", "gst_percent": "0"},
+            ],
+            admin(),
+        )
+        db.session.commit()
+
+        lines = SaleLine.query.filter_by(sale_id=sale.id).order_by(SaleLine.id).all()
+        assert len(lines) == 2
+        assert sale.grand_total == 200
+        assert sale.fifo_cost == 260
+        assert available_quantity(data["ai"].id, data["ai_gst"].id, data["item"].id) == 9
+        assert available_quantity(data["ai"].id, data["ai_gst"].id, replacement_item.id) == 8
 
 
 def test_sale_edit_can_change_item_before_receipt_allocation(app):

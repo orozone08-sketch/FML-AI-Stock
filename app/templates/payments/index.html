@@ -88,6 +88,7 @@
             <td class="actions">
               <a class="table-action" href="{{ url_for('payments.payment_export', payment_id=row.id, fmt='pdf') }}">PDF</a>
               <a class="table-action" href="{{ url_for('payments.payment_export', payment_id=row.id, fmt='xlsx') }}">XL</a>
+              <a class="table-action" href="{{ url_for('payments.payment_print', payment_id=row.id) }}" target="_blank" rel="noopener">Print</a>
               {% if can(current_user, 'payments', 'edit') or can(current_user, 'payments', 'deactivate') %}
                 {% if row.payment_type.startswith('OPENING_ADVANCE') %}
                   <a class="table-action" href="{{ url_for('transactions.opening_advance_edit', payment_id=row.id) }}">Edit</a>

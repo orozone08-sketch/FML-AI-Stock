@@ -107,6 +107,7 @@
                 <a class="table-action" href="{{ url_for('reports.show', name='stock-ledger', q=row.reference_number) }}">Transactions</a>
                 <a class="table-action" href="{{ url_for('transactions.opening_stock_export', opening_id=row.id, fmt='pdf') }}">PDF</a>
                 <a class="table-action" href="{{ url_for('transactions.opening_stock_export', opening_id=row.id, fmt='xlsx') }}">XL</a>
+                <a class="table-action" href="{{ url_for('transactions.opening_stock_print', opening_id=row.id) }}" target="_blank" rel="noopener">Print</a>
                 {% if can(current_user, 'opening', 'create') or can(current_user, 'opening', 'deactivate') %}
                   <a class="table-action" href="{{ url_for('transactions.opening_stock_edit', opening_id=row.id) }}">Edit</a>
                   <form method="post" action="{{ url_for('transactions.opening_stock_delete', opening_id=row.id) }}" data-confirm="Delete this opening stock and reverse it?">
@@ -124,6 +125,7 @@
                 <a class="table-action" href="{{ url_for('masters.customer_detail', customer_id=row.customer_id, company_id=row.company_id) }}">Transactions</a>
                 <a class="table-action" href="{{ url_for('transactions.opening_receivable_export', receivable_id=row.id, fmt='pdf') }}">PDF</a>
                 <a class="table-action" href="{{ url_for('transactions.opening_receivable_export', receivable_id=row.id, fmt='xlsx') }}">XL</a>
+                <a class="table-action" href="{{ url_for('transactions.opening_receivable_print', receivable_id=row.id) }}" target="_blank" rel="noopener">Print</a>
                 {% if can(current_user, 'opening', 'create') or can(current_user, 'opening', 'deactivate') %}
                   <a class="table-action" href="{{ url_for('transactions.opening_receivable_edit', receivable_id=row.id) }}">Edit</a>
                   <form method="post" action="{{ url_for('transactions.opening_receivable_delete', receivable_id=row.id) }}" data-confirm="Delete this opening receivable?">
@@ -141,6 +143,7 @@
                 <a class="table-action" href="{{ url_for('masters.supplier_transaction_detail', supplier_id=row.supplier_id, company_id=row.company_id) }}">Transactions</a>
                 <a class="table-action" href="{{ url_for('transactions.opening_payable_export', payable_id=row.id, fmt='pdf') }}">PDF</a>
                 <a class="table-action" href="{{ url_for('transactions.opening_payable_export', payable_id=row.id, fmt='xlsx') }}">XL</a>
+                <a class="table-action" href="{{ url_for('transactions.opening_payable_print', payable_id=row.id) }}" target="_blank" rel="noopener">Print</a>
                 {% if can(current_user, 'opening', 'create') or can(current_user, 'opening', 'deactivate') %}
                   <a class="table-action" href="{{ url_for('transactions.opening_payable_edit', payable_id=row.id) }}">Edit</a>
                   <form method="post" action="{{ url_for('transactions.opening_payable_delete', payable_id=row.id) }}" data-confirm="Delete this opening payable?">
@@ -162,6 +165,7 @@
                 {% endif %}
                 <a class="table-action" href="{{ url_for('transactions.opening_advance_export', payment_id=row.id, fmt='pdf') }}">PDF</a>
                 <a class="table-action" href="{{ url_for('transactions.opening_advance_export', payment_id=row.id, fmt='xlsx') }}">XL</a>
+                <a class="table-action" href="{{ url_for('transactions.opening_advance_print', payment_id=row.id) }}" target="_blank" rel="noopener">Print</a>
                 {% if can(current_user, 'opening', 'create') or can(current_user, 'opening', 'deactivate') %}
                   <a class="table-action" href="{{ url_for('transactions.opening_advance_edit', payment_id=row.id) }}">Edit</a>
                   <form method="post" action="{{ url_for('transactions.opening_advance_delete', payment_id=row.id) }}" data-confirm="Delete this opening advance?">

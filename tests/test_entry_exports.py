@@ -115,9 +115,13 @@ def test_transaction_rows_include_pdf_xl_links_and_exports_download(client, app)
 
     assert f"/transactions/purchase/{record_ids['purchase']}/export/pdf" in purchase_page
     assert f"/transactions/purchase/{record_ids['purchase']}/export/xlsx" in purchase_page
+    assert f"/transactions/purchase/{record_ids['purchase']}/print" in purchase_page
     assert f"/transactions/sale/{record_ids['sale']}/export/pdf" in sale_page
+    assert f"/transactions/sale/{record_ids['sale']}/print" in sale_page
     assert f"/transactions/transfer/{record_ids['transfer']}/export/xlsx" in transfer_page
+    assert f"/transactions/transfer/{record_ids['transfer']}/print" in transfer_page
     assert f"/transactions/opening/stock/{record_ids['opening']}/export/pdf" in opening_page
+    assert f"/transactions/opening/stock/{record_ids['opening']}/print" in opening_page
     assert f"/transactions/opening/receivable/{record_ids['receivable']}/export/xlsx" in opening_page
     assert f"/transactions/opening/payable/{record_ids['payable']}/export/pdf" in opening_page
     assert f"/transactions/opening/advance/{record_ids['advance']}/export/xlsx" in opening_page
@@ -125,6 +129,7 @@ def test_transaction_rows_include_pdf_xl_links_and_exports_download(client, app)
     assert f"/masters/customers/{record_ids['customer']}?company_id={record_ids['company']}" in opening_page
     assert f"/masters/suppliers/{record_ids['supplier']}/transactions?company_id={record_ids['company']}" in opening_page
     assert f"/finance/payments/{record_ids['advance']}/export/pdf" in payments_page
+    assert f"/finance/payments/{record_ids['advance']}/print" in payments_page
 
     downloads = [
         (f"/transactions/purchase/{record_ids['purchase']}/export/pdf", "application/pdf"),
@@ -142,3 +147,8 @@ def test_transaction_rows_include_pdf_xl_links_and_exports_download(client, app)
         assert response.mimetype == mimetype
         response.get_data()
         response.close()
+
+    print_response = client.get(f"/transactions/sale/{record_ids['sale']}/print")
+    assert print_response.status_code == 200
+    assert print_response.mimetype == "text/html"
+    assert "EXPORT-INV" in print_response.get_data(as_text=True)

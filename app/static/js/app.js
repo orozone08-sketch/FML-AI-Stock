@@ -88,6 +88,7 @@ document.addEventListener("click", async (event) => {
       clone.classList.add("row-enter");
       grid.appendChild(clone);
       initializeItemPickers(clone);
+      syncTransactionGstFields(add.closest("form"));
       updateLineTotal(clone);
       playTone("add");
       window.setTimeout(() => clone.classList.remove("row-enter"), 220);
@@ -188,15 +189,46 @@ function formatPreviewMoney(value) {
   }).format(Number.isFinite(value) ? value : 0);
 }
 
+function normalizeSearchText(value) {
+  return String(value || "").trim().toLocaleLowerCase();
+}
+
 function updateLineTotal(row) {
   if (!row) return;
   const quantity = parseFloat(row.querySelector('input[name="quantity[]"]')?.value || "0");
   const rate = parseFloat(row.querySelector('input[name="rate[]"]')?.value || "0");
-  const gst = parseFloat(row.querySelector('input[name="gst_percent[]"]')?.value || "0");
+  const gst = isTaxableForm(row.closest("form")) ? parseFloat(row.querySelector('input[name="gst_percent[]"]')?.value || "0") : 0;
   const output = row.querySelector(".line-total-preview");
   if (!output) return;
   const subtotal = quantity * rate;
   output.textContent = formatPreviewMoney(subtotal + subtotal * gst / 100);
+}
+
+function transactionType(form) {
+  if (!form) return "";
+  const control = form.querySelector('select[name="purchase_type"], select[name="sale_type"], input[name="purchase_type"], input[name="sale_type"]');
+  return (control?.value || form.dataset.transactionType || "").trim().toUpperCase();
+}
+
+function isTaxableForm(form) {
+  const type = transactionType(form);
+  return !type || type === "GST";
+}
+
+function syncTransactionGstFields(form) {
+  if (!form) return;
+  const taxable = isTaxableForm(form);
+  form.querySelectorAll('input[name="gst_percent[]"]').forEach((input) => {
+    if (!taxable) {
+      input.value = "0";
+      input.readOnly = true;
+      input.setAttribute("aria-label", "GST percent fixed at zero for CASH");
+    } else {
+      input.readOnly = false;
+      input.removeAttribute("aria-label");
+    }
+    updateLineTotal(input.closest(".line-row"));
+  });
 }
 
 function itemOptionLabel(option) {
@@ -223,9 +255,9 @@ function matchingItemOption(input) {
   const picker = input.closest("[data-item-picker], [data-option-picker]");
   const datalist = picker && picker.querySelector("[data-item-options], [data-option-list]");
   if (!datalist) return null;
-  const value = input.value.trim().toLowerCase();
+  const value = normalizeSearchText(input.value);
   if (!value) return null;
-  return Array.from(datalist.options).find((option) => itemOptionLabel(option).toLowerCase() === value) || null;
+  return Array.from(datalist.options).find((option) => normalizeSearchText(itemOptionLabel(option)) === value) || null;
 }
 
 function syncItemValue(input) {
@@ -254,7 +286,7 @@ function applyLiveSearch(input) {
   if (!input || !input.dataset.liveTarget) return;
   const target = document.querySelector(input.dataset.liveTarget);
   if (!target) return;
-  const query = input.value.trim().toLowerCase();
+  const query = normalizeSearchText(input.value);
   const tables = target.matches("table") ? [target] : Array.from(target.querySelectorAll("table"));
 
   tables.forEach((table) => {
@@ -268,7 +300,7 @@ function applyLiveSearch(input) {
         row.hidden = Boolean(query);
         return;
       }
-      const visible = !query || row.textContent.toLowerCase().includes(query);
+      const visible = !query || normalizeSearchText(row.textContent).includes(query);
       row.hidden = !visible;
       if (visible) visibleCount += 1;
     });
@@ -351,11 +383,11 @@ function openCustomerJump(form) {
   const input = form && form.querySelector("[data-customer-jump]");
   const datalist = input && document.getElementById(input.getAttribute("list"));
   if (!input || !datalist) return;
-  const value = input.value.trim().toLowerCase();
+  const value = normalizeSearchText(input.value);
   const options = Array.from(datalist.options);
   const option =
-    options.find((item) => item.value.trim().toLowerCase() === value) ||
-    options.find((item) => value && item.value.trim().toLowerCase().includes(value));
+    options.find((item) => normalizeSearchText(item.value) === value) ||
+    options.find((item) => value && normalizeSearchText(item.value).includes(value));
   if (option?.dataset.url) {
     window.location.href = option.dataset.url;
   } else {
@@ -408,7 +440,9 @@ document.addEventListener("change", (event) => {
     event.target.matches('select[name="purchase_type"]') ||
     event.target.matches('select[name="sale_type"]')
   ) {
-    filterStockBooks(event.target.closest("form"));
+    const form = event.target.closest("form");
+    filterStockBooks(form);
+    syncTransactionGstFields(form);
   }
 });
 
@@ -437,6 +471,7 @@ document.addEventListener("change", (event) => {
 });
 
 document.querySelectorAll("form").forEach(filterStockBooks);
+document.querySelectorAll("form").forEach(syncTransactionGstFields);
 document.querySelectorAll(".line-row").forEach(updateLineTotal);
 initializeItemPickers();
 document.querySelectorAll("[data-live-search]").forEach(applyLiveSearch);
