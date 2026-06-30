@@ -3,20 +3,38 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ profile.customer.name }} - Customer Report</title>
+  <title>{{ statement.customer.name }} - Ledger Account</title>
   <style>
     :root {
-      --ink: #101828;
-      --muted: #667085;
-      --line: #D0D5DD;
+      --ink: #111827;
+      --muted: #6B7280;
+      --line: #D1D5DB;
+      --paper: #FFFFFF;
       --soft: #F8FAFC;
-      --brand: #5B4308;
-      --brand-line: #B98A12;
+      --brand: #8A6412;
+      --brand-line: #B68D2D;
     }
     * { box-sizing: border-box; }
-    body { margin: 28px; color: var(--ink); font-family: Arial, sans-serif; background: #fff; }
-    .print-actions { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 18px; }
-    .print-actions button, .print-actions a {
+    body {
+      margin: 0;
+      background: #E5E7EB;
+      color: var(--ink);
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 12px;
+    }
+    .print-actions {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      max-width: 210mm;
+      margin: 0 auto;
+      padding: 10px 0;
+    }
+    .print-actions button,
+    .print-actions a {
       border: 1px solid var(--brand-line);
       border-radius: 6px;
       background: #fff;
@@ -26,153 +44,231 @@
       text-decoration: none;
       cursor: pointer;
     }
-    .header { border-bottom: 2px solid var(--brand-line); padding-bottom: 14px; margin-bottom: 16px; }
-    h1 { margin: 0 0 6px; font-size: 26px; }
-    h2 { margin: 24px 0 10px; font-size: 17px; }
-    .meta { color: var(--muted); line-height: 1.45; }
+    .sheet {
+      width: 210mm;
+      min-height: 297mm;
+      margin: 0 auto 24px;
+      padding: 13mm 11mm;
+      background: var(--paper);
+      box-shadow: 0 14px 36px rgba(15, 23, 42, 0.18);
+    }
+    .company-wrap {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .company-block,
+    .party-block {
+      border: 1px solid var(--line);
+      padding: 10px 12px;
+      text-align: center;
+      line-height: 1.35;
+    }
+    .company-block strong,
+    .party-block strong {
+      display: block;
+      font-size: 15px;
+      letter-spacing: 0;
+    }
+    .party-block {
+      margin: 0 auto 12px;
+      max-width: 130mm;
+      border-color: var(--brand-line);
+    }
+    .ledger-title {
+      margin: 2px 0 4px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .period {
+      margin: 12px 0 8px;
+      text-align: center;
+      color: var(--muted);
+      font-weight: 700;
+    }
     .summary {
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 10px;
-      margin: 16px 0 20px;
+      gap: 8px;
+      margin: 12px 0;
     }
-    .card { border: 1px solid var(--line); border-top: 3px solid var(--brand-line); padding: 10px; border-radius: 7px; }
-    .card span { display: block; color: var(--muted); font-size: 12px; }
-    .card strong { display: block; margin-top: 4px; font-size: 18px; }
-    .details { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; border: 1px solid var(--line); }
-    .details div { padding: 9px 10px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); min-height: 52px; }
-    .details div:nth-child(3n) { border-right: 0; }
-    .details span { display: block; color: var(--muted); font-size: 11px; text-transform: uppercase; }
-    .details strong { display: block; margin-top: 3px; font-size: 13px; word-break: break-word; }
-    table { width: 100%; border-collapse: collapse; font-size: 12px; page-break-inside: auto; }
-    th, td { border: 1px solid var(--line); padding: 7px 8px; text-align: left; vertical-align: top; }
-    th { background: var(--soft); color: #344054; text-transform: uppercase; font-size: 10px; }
-    tr { page-break-inside: avoid; page-break-after: auto; }
-    tr:nth-child(even) td { background: #FCFCFD; }
+    .card {
+      border: 1px solid var(--line);
+      border-top: 3px solid var(--brand-line);
+      padding: 8px 10px;
+      background: #fff;
+    }
+    .card span {
+      display: block;
+      color: var(--muted);
+      font-size: 10px;
+      text-transform: uppercase;
+    }
+    .card strong {
+      display: block;
+      margin-top: 3px;
+      font-size: 15px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+    th,
+    td {
+      border-bottom: 1px solid var(--line);
+      padding: 7px 6px;
+      text-align: left;
+      vertical-align: top;
+      word-break: break-word;
+    }
+    thead th {
+      border-top: 1px solid var(--ink);
+      border-bottom: 1px solid var(--ink);
+      background: var(--soft);
+      color: #374151;
+      font-size: 10px;
+      text-transform: uppercase;
+    }
+    tbody tr:nth-child(even) td { background: #FCFCFD; }
     .right { text-align: right; }
-    .empty { color: var(--muted); text-align: center; }
+    .center { text-align: center; }
+    .opening td,
+    .total-row td {
+      font-weight: 700;
+      background: #FFF9E8;
+    }
+    .date-col { width: 12%; }
+    .particular-col { width: 34%; }
+    .type-col { width: 11%; }
+    .voucher-col { width: 16%; }
+    .money-col { width: 9%; }
+    .balance-col { width: 12%; }
+    .footer-note {
+      margin-top: 12px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 10px;
+    }
     @media print {
-      body { margin: 11mm; }
+      @page { size: A4 portrait; margin: 10mm; }
+      body { background: #fff; }
       .print-actions { display: none; }
-      h2 { break-after: avoid; }
-      .summary, .details { break-inside: avoid; }
+      .sheet {
+        width: auto;
+        min-height: auto;
+        margin: 0;
+        padding: 0;
+        box-shadow: none;
+      }
+      .company-block,
+      .party-block,
+      .summary,
+      thead { break-inside: avoid; }
+      tr { break-inside: avoid; }
     }
     @media (max-width: 760px) {
-      body { margin: 16px; }
+      .sheet {
+        width: auto;
+        min-height: 0;
+        margin: 0;
+        padding: 16px;
+      }
       .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .details { grid-template-columns: 1fr; }
-      .details div, .details div:nth-child(3n) { border-right: 0; }
+      table { min-width: 760px; }
+      .table-scroll { overflow-x: auto; }
     }
   </style>
 </head>
 <body>
   <div class="print-actions">
     <button type="button" onclick="window.print()">Print</button>
-    <a href="{{ url_for('masters.customer_export', customer_id=profile.customer.id, fmt='pdf', company_id=selected_company_id or '', date_from=date_from, date_to=date_to) }}">PDF</a>
+    <a href="{{ url_for('masters.customer_export', customer_id=statement.customer.id, fmt='pdf', company_id=selected_company_id or '', date_from=date_from, date_to=date_to) }}">PDF</a>
     <a href="javascript:history.back()">Back</a>
   </div>
 
-  <header class="header">
-    <h1>{{ profile.customer.name }}</h1>
-    <div class="meta">
-      Customer overall report
-      {% if selected_company %} | Company: {{ selected_company.code }} - {{ selected_company.name }}{% else %} | Company: All companies{% endif %}
-      | Period: {{ date_from }} to {{ date_to }}
+  <main class="sheet">
+    <section class="company-wrap" aria-label="Our company details">
+      {% for company in statement.companies %}
+        <article class="company-block">
+          <strong>{{ company.name }}</strong>
+          {% for line in company.address_lines %}
+            <div>{{ line }}</div>
+          {% endfor %}
+          {% if company.gstin %}<div>GSTIN/UIN: {{ company.gstin }}</div>{% endif %}
+          {% if company.state %}<div>State: {{ company.state }}{% if company.state_code %}, Code: {{ company.state_code }}{% endif %}</div>{% endif %}
+          {% if company.contact %}<div>Contact: {{ company.contact }}</div>{% endif %}
+          {% if company.email %}<div>E-Mail: {{ company.email }}</div>{% endif %}
+        </article>
+      {% endfor %}
+    </section>
+
+    <section class="party-block" aria-label="Customer details">
+      <strong>{{ statement.customer.name }}</strong>
+      <div class="ledger-title">Ledger Account</div>
+      {% if statement.customer.address %}<div>{{ statement.customer.address }}</div>{% endif %}
+      {% if statement.customer.city or statement.customer.state %}
+        <div>{{ statement.customer.city or '' }}{% if statement.customer.city and statement.customer.state %}, {% endif %}{{ statement.customer.state or '' }}</div>
+      {% endif %}
+      {% if statement.customer.mobile or statement.customer.whatsapp %}
+        <div>{% if statement.customer.mobile %}Mobile: {{ statement.customer.mobile }}{% endif %}{% if statement.customer.mobile and statement.customer.whatsapp %} | {% endif %}{% if statement.customer.whatsapp %}WhatsApp: {{ statement.customer.whatsapp }}{% endif %}</div>
+      {% endif %}
+      {% if statement.customer.email %}<div>E-Mail: {{ statement.customer.email }}</div>{% endif %}
+      {% if statement.customer.gst_number %}<div>GSTIN/UIN: {{ statement.customer.gst_number }}</div>{% endif %}
+    </section>
+
+    <div class="period">{{ statement.period_label }}</div>
+
+    <section class="summary" aria-label="Ledger summary">
+      <article class="card"><span>Opening Balance</span><strong>{{ statement.opening_display }}</strong></article>
+      <article class="card"><span>Debit</span><strong>{{ statement.debit_display }}</strong></article>
+      <article class="card"><span>Credit</span><strong>{{ statement.credit_display }}</strong></article>
+      <article class="card"><span>Closing Balance</span><strong>{{ statement.closing_display }}</strong></article>
+    </section>
+
+    <div class="table-scroll">
+      <table aria-label="Customer ledger transactions">
+        <thead>
+          <tr>
+            <th class="date-col">Date</th>
+            <th class="particular-col">Particulars</th>
+            <th class="type-col">Vch Type</th>
+            <th class="voucher-col">Vch No.</th>
+            <th class="money-col right">Debit</th>
+            <th class="money-col right">Credit</th>
+            <th class="balance-col right">Balance</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in statement.rows %}
+            <tr class="{% if row.is_opening %}opening{% endif %}">
+              <td>{{ row.date_display }}</td>
+              <td>{{ row.particulars }}</td>
+              <td>{{ row.voucher_type }}</td>
+              <td>{{ row.voucher_no }}</td>
+              <td class="right">{{ row.debit_display }}</td>
+              <td class="right">{{ row.credit_display }}</td>
+              <td class="right">{{ row.balance_display }}</td>
+            </tr>
+          {% else %}
+            <tr><td colspan="7" class="center">No ledger entries found.</td></tr>
+          {% endfor %}
+          <tr class="total-row">
+            <td></td>
+            <td>Grand Total</td>
+            <td></td>
+            <td></td>
+            <td class="right">{{ statement.debit_display }}</td>
+            <td class="right">{{ statement.credit_display }}</td>
+            <td class="right">{{ statement.closing_display }}</td>
+          </tr>
+        </tbody>
+      </table>
     </div>
-  </header>
 
-  <section class="summary">
-    <article class="card"><span>Total Sales</span><strong>{{ fmt_money(profile.summary.total_sales) }}</strong></article>
-    <article class="card"><span>Received</span><strong>{{ fmt_money(profile.summary.total_received) }}</strong></article>
-    <article class="card"><span>Pending Payment</span><strong>{{ fmt_money(profile.summary.total_pending) }}</strong></article>
-    <article class="card"><span>Pending Stock</span><strong>{{ fmt_qty(profile.summary.pending_stock) }}</strong></article>
-  </section>
-
-  <h2>Customer Details</h2>
-  <section class="details">
-    <div><span>Customer code</span><strong>{{ profile.customer.code }}</strong></div>
-    <div><span>Customer name</span><strong>{{ profile.customer.name }}</strong></div>
-    <div><span>Companies</span><strong>{{ profile.companies|map(attribute='code')|join(', ') or '-' }}</strong></div>
-    <div><span>Contact person</span><strong>{{ profile.customer.contact_person or '-' }}</strong></div>
-    <div><span>Mobile</span><strong>{{ profile.customer.mobile or '-' }}</strong></div>
-    <div><span>WhatsApp</span><strong>{{ profile.customer.whatsapp or '-' }}</strong></div>
-    <div><span>Email</span><strong>{{ profile.customer.email or '-' }}</strong></div>
-    <div><span>GST number</span><strong>{{ profile.customer.gst_number or '-' }}</strong></div>
-    <div><span>City / State</span><strong>{{ profile.customer.city or '-' }}{% if profile.customer.state %}, {{ profile.customer.state }}{% endif %}</strong></div>
-    <div><span>Address</span><strong>{{ profile.customer.address or '-' }}</strong></div>
-    <div><span>Notes</span><strong>{{ profile.customer.notes or '-' }}</strong></div>
-    <div><span>Last transaction</span><strong>{{ profile.summary.last_transaction or '-' }}</strong></div>
-  </section>
-
-  <h2>Invoices</h2>
-  <table>
-    <thead>
-      <tr><th>Date</th><th>Company</th><th>Invoice</th><th>Type</th><th class="right">Total</th><th class="right">Paid</th><th class="right">Pending</th><th>Status</th><th>Remarks</th></tr>
-    </thead>
-    <tbody>
-      {% for sale in profile.invoices %}
-        <tr><td>{{ sale.invoice_date }}</td><td>{{ sale.company.code }}</td><td>{{ sale.invoice_number }}</td><td>{{ sale.sale_type }}</td><td class="right">{{ fmt_money(sale.grand_total) }}</td><td class="right">{{ fmt_money(sale.paid_amount) }}</td><td class="right">{{ fmt_money(sale.balance_amount) }}</td><td>{{ sale.payment_status }}</td><td>{{ sale.remarks or '' }}</td></tr>
-      {% else %}
-        <tr><td colspan="9" class="empty">No invoices.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-
-  <h2>Outstanding Documents</h2>
-  <table>
-    <thead>
-      <tr><th>Date</th><th>Due</th><th>Company</th><th>Document</th><th>Source</th><th class="right">Total</th><th class="right">Paid</th><th class="right">Balance</th><th>Status</th></tr>
-    </thead>
-    <tbody>
-      {% for row in profile.receivables %}
-        <tr><td>{{ row.document_date }}</td><td>{{ row.due_date or '' }}</td><td>{{ row.company.code }}</td><td>{{ row.document_number }}</td><td>{{ row.source_type }}</td><td class="right">{{ fmt_money(row.total_amount) }}</td><td class="right">{{ fmt_money(row.paid_amount) }}</td><td class="right">{{ fmt_money(row.balance_amount) }}</td><td>{{ row.payment_status }}</td></tr>
-      {% else %}
-        <tr><td colspan="9" class="empty">No outstanding documents.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-
-  <h2>Stock / Challan Rows</h2>
-  <table>
-    <thead>
-      <tr><th>Challan</th><th>Date</th><th>Item</th><th class="right">Quantity</th><th>Weight</th><th>Status</th></tr>
-    </thead>
-    <tbody>
-      {% for row in profile.stock_rows %}
-        <tr><td>{{ row.challan_number }}</td><td>{{ row.challan_date }}</td><td>{{ row.item }}</td><td class="right">{{ fmt_qty(row.quantity) }}</td><td>{{ row.weight }}</td><td>{{ row.status }}</td></tr>
-      {% else %}
-        <tr><td colspan="6" class="empty">No stock rows.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-
-  <h2>Payments</h2>
-  <table>
-    <thead>
-      <tr><th>Date</th><th>Company</th><th>Mode</th><th class="right">Amount</th><th class="right">Allocated</th><th class="right">Advance</th><th>Reference</th><th>Remarks</th></tr>
-    </thead>
-    <tbody>
-      {% for payment in profile.payments %}
-        <tr><td>{{ payment.payment_date }}</td><td>{{ payment.company.code }}</td><td>{{ payment.mode }}</td><td class="right">{{ fmt_money(payment.total_amount) }}</td><td class="right">{{ fmt_money(payment.allocated_amount) }}</td><td class="right">{{ fmt_money(payment.unallocated_amount) }}</td><td>{{ payment.reference_number or '' }}</td><td>{{ payment.remarks or '' }}</td></tr>
-      {% else %}
-        <tr><td colspan="8" class="empty">No payments.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-
-  <h2>Documents</h2>
-  <table>
-    <thead>
-      <tr><th>Date</th><th>Type</th><th>Document</th></tr>
-    </thead>
-    <tbody>
-      {% for document in profile.documents %}
-        <tr><td>{{ document.date }}</td><td>{{ document.type }}</td><td>{{ document.label }}</td></tr>
-      {% else %}
-        <tr><td colspan="3" class="empty">No generated documents.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+    <div class="footer-note">This ledger combines sales, opening balances, receipts, and advances by transaction date.</div>
+  </main>
 
   <script>
     window.addEventListener("load", () => window.setTimeout(() => window.print(), 250));

@@ -91,15 +91,29 @@ def test_customer_list_search_clickable_names_and_profile_page(client, app):
     print_html = print_response.get_data(as_text=True)
 
     assert print_response.status_code == 200
-    assert "Customer overall report" in print_html
+    assert "Ledger Account" in print_html
+    assert "Opening Balance" in print_html
     assert "PROFILE-INV-1" in print_html
     assert "PROFILE-RCPT-1" in print_html
+    assert "To Sales GST Net" in print_html
+    assert "By BANK" in print_html
+    assert "Grand Total" in print_html
+    assert "₹236.00" in print_html
+    assert "₹118.00 Dr" in print_html
+    assert print_html.index("PROFILE-INV-1") < print_html.index("PROFILE-RCPT-1")
     assert "window.print()" in print_html
 
     pdf_response = client.get(f"/masters/customers/{customer_id}/export/pdf")
     assert pdf_response.status_code == 200
     assert pdf_response.mimetype == "application/pdf"
     assert "customer-overall" in pdf_response.headers["Content-Disposition"]
+
+    csv_response = client.get(f"/masters/customers/{customer_id}/export/csv")
+    csv_text = csv_response.get_data(as_text=True)
+    assert csv_response.status_code == 200
+    assert "Particulars,Vch Type,Vch No." in csv_text
+    assert "PROFILE-INV-1" in csv_text
+    assert "PROFILE-RCPT-1" in csv_text
 
 
 def test_customer_profile_period_filters_invoices_and_summary(client, app):

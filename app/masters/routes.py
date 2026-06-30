@@ -10,6 +10,12 @@ from app.core.security import require_permission
 from app.extensions import db
 from app.models import Company, Customer, Item, Payment, Receivable, Sale, StockBook, Supplier
 from app.reports.exporting import export_table
+from app.services.customer_statement import (
+    customer_statement_context,
+    customer_statement_export_headers,
+    customer_statement_export_rows,
+    export_customer_statement_pdf,
+)
 from app.services.audit import audit
 from app.services.customer_profile import customer_master_rows, customer_profile, paginate_rows
 from app.services.supplier_profile import supplier_transactions
@@ -174,9 +180,11 @@ def customer_print(customer_id):
     if not profile:
         abort(404)
     selected_company = db.session.get(Company, selected_company_id) if selected_company_id else None
+    statement = customer_statement_context(profile, selected_company, selected_company_id, date_from, date_to)
     return render_template(
         "masters/customer_print.html",
         profile=profile,
+        statement=statement,
         selected_company=selected_company,
         selected_company_id=selected_company_id,
         date_from=date_from,
@@ -194,11 +202,15 @@ def customer_export(customer_id, fmt):
     profile = customer_profile(customer_id, selected_company_id, date_from, date_to)
     if not profile:
         abort(404)
+    selected_company = db.session.get(Company, selected_company_id) if selected_company_id else None
+    statement = customer_statement_context(profile, selected_company, selected_company_id, date_from, date_to)
+    if (fmt or "").lower() == "pdf":
+        return export_customer_statement_pdf(statement)
     try:
         return export_table(
             f"Customer Overall - {profile['customer'].name}",
-            CUSTOMER_EXPORT_HEADERS,
-            customer_export_rows(profile, date_from, date_to),
+            customer_statement_export_headers(),
+            customer_statement_export_rows(statement),
             fmt,
         )
     except ValueError:
