@@ -166,6 +166,7 @@ const APP_ICON_PATHS = {
   "boxes": '<path d="M2.97 12.92 12 18.14l9.03-5.22"/><path d="M2.97 7.08 12 12.3l9.03-5.22"/><path d="M12 2 2.97 7.08 12 12.3l9.03-5.22L12 2Z"/><path d="M12 12.3v9.7"/>',
   "building-2": '<path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18"/><path d="M6 12H4a2 2 0 0 0-2 2v8"/><path d="M18 9h2a2 2 0 0 1 2 2v11"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/>',
   "chart-no-axes-combined": '<path d="M12 16v5"/><path d="M16 14v7"/><path d="M20 10v11"/><path d="m22 3-8.646 8.646a.5.5 0 0 1-.708 0L9.354 8.354a.5.5 0 0 0-.708 0L2 15"/><path d="M4 18v3"/><path d="M8 14v7"/>',
+  "chevrons-left": '<path d="m11 17-5-5 5-5"/><path d="m18 17-5-5 5-5"/>',
   "circle": '<circle cx="12" cy="12" r="9"/>',
   "calculator": '<rect width="16" height="20" x="4" y="2" rx="2"/><line x1="8" x2="16" y1="6" y2="6"/><line x1="16" x2="16" y1="14" y2="18"/><path d="M8 10h.01"/><path d="M12 10h.01"/><path d="M16 10h.01"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M8 18h.01"/><path d="M12 18h.01"/>',
   "calendar-days": '<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/><path d="M8 18h.01"/><path d="M12 18h.01"/><path d="M16 18h.01"/>',
@@ -178,6 +179,7 @@ const APP_ICON_PATHS = {
   "more-horizontal": '<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
   "moon": '<path d="M12 3a6 6 0 0 0 9 7.2A9 9 0 1 1 12 3Z"/>',
   "panel-left": '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/>',
+  "panel-right": '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/>',
   "pause": '<rect width="4" height="16" x="6" y="4"/><rect width="4" height="16" x="14" y="4"/>',
   "play": '<path d="m6 3 15 9-15 9V3Z"/>',
   "receipt-text": '<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1-2-1Z"/><path d="M8 7h8"/><path d="M8 11h8"/><path d="M8 15h5"/>',
@@ -253,17 +255,28 @@ function updateThemeToggle(toggle) {
 APP_ICON_PATHS.sun = '<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>';
 
 function initializeSidebarControls() {
-  const collapsed = localStorage.getItem("fastockflow-sidebar") === "collapsed";
-  document.body.classList.toggle("sidebar-collapsed", collapsed);
   const toggle = document.querySelector("[data-sidebar-toggle]");
-  if (!toggle) return;
-  toggle.setAttribute("aria-expanded", String(!collapsed));
-  toggle.addEventListener("click", () => {
-    const next = !document.body.classList.contains("sidebar-collapsed");
-    document.body.classList.toggle("sidebar-collapsed", next);
-    localStorage.setItem("fastockflow-sidebar", next ? "collapsed" : "expanded");
-    toggle.setAttribute("aria-expanded", String(!next));
+  const hide = document.querySelector("[data-sidebar-hide]");
+  const show = document.querySelector("[data-sidebar-show]");
+  const setState = (state) => {
+    const next = ["expanded", "collapsed", "hidden"].includes(state) ? state : "expanded";
+    document.body.classList.toggle("sidebar-collapsed", next === "collapsed");
+    document.body.classList.toggle("sidebar-hidden", next === "hidden");
+    localStorage.setItem("fastockflow-sidebar", next);
+    toggle?.setAttribute("aria-expanded", String(next === "expanded"));
+    toggle?.setAttribute("aria-label", next === "collapsed" ? "Expand sidebar" : "Minimize sidebar");
+    toggle?.setAttribute("title", next === "collapsed" ? "Expand sidebar" : "Minimize sidebar");
+    hide?.setAttribute("aria-expanded", String(next !== "hidden"));
+    show?.setAttribute("aria-expanded", String(next !== "hidden"));
+  };
+
+  setState(localStorage.getItem("fastockflow-sidebar") || "expanded");
+
+  toggle?.addEventListener("click", () => {
+    setState(document.body.classList.contains("sidebar-collapsed") ? "expanded" : "collapsed");
   });
+  hide?.addEventListener("click", () => setState("hidden"));
+  show?.addEventListener("click", () => setState("expanded"));
 }
 
 function initializeScrollShadow() {
