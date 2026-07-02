@@ -64,6 +64,13 @@ async function playTone(kind) {
 }
 
 document.addEventListener("click", async (event) => {
+  const authNote = event.target.closest("[data-auth-note]");
+  if (authNote) {
+    event.preventDefault();
+    showShortcutHint(authNote.dataset.authNote || "Please contact the owner/admin for help.");
+    return;
+  }
+
   const toggle = event.target.closest("[data-toggle-password]");
   if (toggle) {
     const input = document.querySelector(toggle.dataset.togglePassword);

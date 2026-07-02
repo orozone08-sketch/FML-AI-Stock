@@ -17,10 +17,24 @@ from app.services.audit import audit
 bp = Blueprint("auth", __name__)
 
 
+def login_company_from_id(company_id):
+    try:
+        company_id = int(company_id or 0)
+    except (TypeError, ValueError):
+        return None
+    if not company_id:
+        return None
+    return Company.query.filter_by(id=company_id, active=True).first()
+
+
 def render_login(message="", category="danger", selected_company_id=None, login_id=""):
     flashed = get_flashed_messages(with_categories=True)
     if not message and flashed:
         category, message = flashed[0]
+    selected_company = login_company_from_id(selected_company_id)
+    if selected_company_id and not selected_company and not message:
+        message = "Choose an active company workspace to continue."
+        category = "danger"
     response = make_response(
         render_template(
             "auth/login.html",
@@ -28,6 +42,7 @@ def render_login(message="", category="danger", selected_company_id=None, login_
             login_message_category=category or "info",
             companies=company_choices(),
             selected_company_id=str(selected_company_id or ""),
+            selected_company=selected_company,
             login_id=login_id or "",
         )
     )
@@ -58,6 +73,7 @@ def render_register(message="", category="danger"):
             login_message=message or "",
             login_message_category=category or "info",
             companies=company_choices(),
+            selected_company=login_company_from_id(request.form.get("company_id") or request.args.get("company_id")),
             form=request.form,
         )
     )
@@ -91,6 +107,7 @@ def login():
     if request.method == "POST":
         email = (request.form.get("email") or "").strip().lower()
         password = request.form.get("password") or ""
+        remember = bool(request.form.get("remember"))
         selected_company = selected_login_company()
         if not selected_company:
             return render_login("Select FirstTech or Aditya before logging in.", "danger", login_id=email)
@@ -127,13 +144,20 @@ def login():
                     selected_company_id=selected_company.id,
                     login_id=email,
                 )
-            login_user(user)
+            login_user(user, remember=remember)
             user.last_login_at = datetime.utcnow()
             audit("login", "User", user.id, user.email, user=user)
             db.session.commit()
             next_url = request.args.get("next") or url_for("dashboard.index")
             return redirect(next_url)
-    return render_login()
+    return render_login(selected_company_id=request.args.get("company_id"))
+
+
+@bp.route("/login/company/<int:company_id>", methods=["GET"])
+def company_login(company_id):
+    if current_user.is_authenticated:
+        return redirect(url_for("dashboard.index"))
+    return render_login(selected_company_id=company_id)
 
 
 @bp.route("/register", methods=["GET", "POST"])
@@ -188,13 +212,14 @@ def admin_login():
     if request.method == "POST":
         email = (request.form.get("email") or "").strip().lower()
         password = request.form.get("password") or ""
+        remember = bool(request.form.get("remember"))
         user = User.query.filter_by(email=email).first()
         if not user or not user.check_password(password) or not user_can_view_all_companies(user):
             return render_admin_login("Invalid admin login ID or password.", "danger")
         if not user.active:
             return render_admin_login("This admin user is inactive.", "danger")
         clear_active_company()
-        login_user(user)
+        login_user(user, remember=remember)
         user.last_login_at = datetime.utcnow()
         audit("login", "User", user.id, user.email, user=user)
         db.session.commit()

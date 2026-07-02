@@ -77,9 +77,8 @@ def test_admin_login_is_not_a_fastockflow_login(client):
     response = login(client, "admin@fastockflow.local", "Abhijeet2026")
     assert response.status_code == 200
     assert b"Use the owner/admin login for all-company access." in response.data
-    assert b"Company Login" in response.data
-    assert b"FirstTech Machine LLP" in response.data
     assert b"Aditya International" in response.data
+    assert b"Owner/admin login" in response.data
 
 
 def test_company_login_shows_invalid_password_message(client):
@@ -114,13 +113,30 @@ def test_login_page_has_direct_company_options(client):
     response = client.get("/login")
     assert response.status_code == 200
     html = response.get_data(as_text=True)
-    assert 'name="company_id" type="radio"' in html
-    assert 'name="email" type="text"' in html
+    assert "Select your workspace" in html
+    assert "/login/company/" in html
+    assert 'name="email"' not in html
     assert "firsttech-logo.jpg" in html
     assert "aditya-logo.jpg" in html
     assert "FAstockFlow" in html
-    assert "Secure company workspace for FirstTech and Aditya users." in html
+    assert "Choose your company workspace" in html
     assert "Register user" in html
+
+
+def test_company_specific_login_page_has_enterprise_auth_controls(client, app):
+    with app.app_context():
+        aditya_id = Company.query.filter_by(code="AI").one().id
+
+    response = client.get(f"/login/company/{aditya_id}")
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert "Aditya International Login" in html
+    assert f'name="company_id" value="{aditya_id}"' in html
+    assert 'name="email" type="text"' in html
+    assert 'name="password" type="password"' in html
+    assert 'name="remember" type="checkbox"' in html
+    assert "Forgot password?" in html
+    assert "Back to company selection" in html
 
 
 def test_company_login_rejects_wrong_company_selection(client, app):

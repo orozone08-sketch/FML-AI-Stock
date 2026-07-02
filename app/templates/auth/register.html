@@ -6,12 +6,18 @@
     <meta name="login-message" content="{{ login_message|default('', true)|e }}">
     <meta name="login-message-category" content="{{ login_message_category|default('info', true)|e }}">
     <title>Register User</title>
+    <script>
+      (() => {
+        const theme = localStorage.getItem("fastockflow-theme");
+        if (theme === "dark") document.documentElement.dataset.theme = "dark";
+      })();
+    </script>
     <link rel="icon" href="{{ url_for('static', filename='img/fastockflow-icon.png', v=asset_version) }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css', v=asset_version) }}">
   </head>
-  <body>
-    <main class="login-page">
-      <form class="login-card login-card-wide" method="post">
+  <body class="auth-body">
+    <main class="login-page auth-page">
+      <form class="login-card login-card-wide auth-register-card" method="post">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="flash login-message" data-login-message hidden></div>
         <div class="login-brand">
@@ -21,10 +27,11 @@
             <p>Create a company-specific login for stock and account entries.</p>
           </div>
         </div>
+        {% set selected_registration_company_id = form.get('company_id') or (selected_company.id|string if selected_company else '') %}
         <div class="login-company-options" role="radiogroup" aria-label="Company">
           {% for company in companies %}
             <label class="login-company-option">
-              <input name="company_id" type="radio" value="{{ company.id }}" required {% if form.get('company_id') == company.id|string or (not form.get('company_id') and loop.first) %}checked{% endif %} {% if loop.first %}autofocus{% endif %}>
+              <input name="company_id" type="radio" value="{{ company.id }}" required {% if selected_registration_company_id == company.id|string or (not selected_registration_company_id and loop.first) %}checked{% endif %} {% if loop.first %}autofocus{% endif %}>
               <img src="{{ url_for('static', filename=company_logo(company), v=asset_version) }}" alt="{{ company.name }}">
               <span>{{ company.name }}</span>
               <small>{{ company.code }} company workspace</small>
