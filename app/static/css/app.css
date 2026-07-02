@@ -1619,6 +1619,43 @@ body.has-scrolled .topbar {
   min-width: min(380px, 100%);
 }
 
+.topbar-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.back-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 8px 12px;
+  border: 1px solid rgba(182, 141, 45, 0.28);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.76);
+  color: var(--text);
+  box-shadow: 0 10px 24px rgba(17, 24, 39, 0.06);
+  cursor: pointer;
+  font-size: 0.86rem;
+  font-weight: 820;
+  white-space: nowrap;
+  transition: transform 160ms var(--ease-premium), border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+
+.back-button:hover,
+.back-button:focus-visible {
+  border-color: rgba(182, 141, 45, 0.52);
+  box-shadow: 0 14px 30px rgba(17, 24, 39, 0.11);
+  transform: translateY(-1px);
+}
+
+.back-button .app-icon {
+  width: 16px;
+  height: 16px;
+}
+
 .topbar h1 {
   color: var(--text);
   font-size: clamp(1.7rem, 2.5vw, 2.45rem);
@@ -1677,7 +1714,8 @@ html[data-theme="dark"] .global-search input {
 html[data-theme="dark"] .company-chip,
 html[data-theme="dark"] .user-chip,
 html[data-theme="dark"] .bell-button,
-html[data-theme="dark"] .theme-toggle {
+html[data-theme="dark"] .theme-toggle,
+html[data-theme="dark"] .back-button {
   background: rgba(255, 255, 255, 0.06);
 }
 
@@ -2319,6 +2357,110 @@ html[data-theme="dark"] .floating-tool-panel {
   margin-top: 2px;
 }
 
+.shortcut-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(17, 24, 39, 0.42);
+  backdrop-filter: blur(12px);
+  animation: fade-in 160ms ease both;
+}
+
+.shortcut-modal {
+  width: min(640px, 100%);
+  max-height: min(760px, calc(100vh - 36px));
+  overflow: auto;
+  border: 1px solid rgba(255, 255, 255, 0.64);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.94);
+  color: var(--text);
+  box-shadow: 0 32px 90px rgba(17, 24, 39, 0.28);
+}
+
+html[data-theme="dark"] .shortcut-modal {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(23, 26, 33, 0.96);
+}
+
+.shortcut-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 22px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.shortcut-modal-header h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.shortcut-modal-header p {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+
+.shortcut-list {
+  display: grid;
+  gap: 8px;
+  padding: 18px 22px 22px;
+}
+
+.shortcut-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 220px) 1fr;
+  gap: 14px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.shortcut-row:last-child {
+  border-bottom: 0;
+}
+
+.shortcut-row kbd {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 10px;
+  background: var(--surface-muted);
+  color: var(--text);
+  font-size: 0.83rem;
+  font-weight: 830;
+  white-space: normal;
+}
+
+.shortcut-row span:last-child {
+  color: var(--muted);
+  font-weight: 680;
+}
+
+.shortcut-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  z-index: 1300;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 11px 14px;
+  border: 1px solid rgba(182, 141, 45, 0.34);
+  border-radius: 999px;
+  background: rgba(27, 27, 29, 0.92);
+  color: #fff;
+  box-shadow: 0 18px 44px rgba(17, 24, 39, 0.24);
+  transform: translateX(-50%);
+  animation: shortcut-toast-in 180ms ease both;
+  font-size: 0.88rem;
+  font-weight: 760;
+}
+
 .music-controls {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -2363,6 +2505,16 @@ input[type="range"] {
 @keyframes focus-pulse {
   0%, 100% { transform: scale(0.84); opacity: 0.62; }
   50% { transform: scale(1.24); opacity: 1; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes shortcut-toast-in {
+  from { opacity: 0; transform: translate(-50%, 12px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
 }
 
 @media (max-width: 1180px) {
@@ -2436,8 +2588,16 @@ input[type="range"] {
   .topbar {
     border-radius: 18px;
   }
+  .topbar-title-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
   .topbar-actions {
     align-items: stretch;
+  }
+  .back-button {
+    width: fit-content;
   }
   .company-chip,
   .user-chip {
@@ -2463,5 +2623,9 @@ input[type="range"] {
   .floating-tool-actions {
     max-width: calc(100vw - 20px);
     overflow-x: auto;
+  }
+  .shortcut-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
   }
 }

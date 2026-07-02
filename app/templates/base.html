@@ -82,13 +82,19 @@
         <main class="main">
           <header class="topbar">
             <div class="topbar-copy">
-              <h1>{% block page_title %}FAstockFlow{% endblock %}</h1>
+              <div class="topbar-title-row">
+                <button class="back-button" type="button" data-back-button data-back-fallback="{{ url_for('dashboard.index') }}" aria-label="Go back" title="Back (Esc)">
+                  <span data-icon="arrow-left"></span>
+                  <span>Back</span>
+                </button>
+                <h1>{% block page_title %}FAstockFlow{% endblock %}</h1>
+              </div>
               <p>{% block page_subtitle %}Real-time stock, FIFO, payments and inter-company control{% endblock %}</p>
             </div>
             <div class="topbar-actions">
               <label class="global-search" aria-label="Search current page">
                 <span data-icon="search"></span>
-                <input type="search" placeholder="Search this page" data-global-search autocomplete="off">
+                <input type="search" placeholder="Search this page" data-global-search autocomplete="off" title="Search this page (Ctrl+F)">
               </label>
               {% if active_company %}
                 <div class="company-chip">
@@ -112,6 +118,9 @@
               {% endif %}
               <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle dark mode" title="Toggle dark mode">
                 <span data-icon="moon"></span>
+              </button>
+              <button class="theme-toggle" type="button" data-shortcut-help aria-label="Keyboard shortcuts" title="Keyboard shortcuts (F1)">
+                <span data-icon="keyboard"></span>
               </button>
               <div class="user-chip">{{ current_user.name }} · {{ current_user.role }}</div>
             </div>

@@ -1,5 +1,5 @@
 from app.extensions import db
-from app.models import Payment, Receivable, StockLedgerEntry
+from app.models import Customer, Payment, Receivable, StockLedgerEntry
 from app.services.payments import create_customer_receipt
 from app.services.transactions import create_opening_receivable, create_purchase, create_sale
 from tests.test_fifo_workflows import admin, ids
@@ -132,6 +132,55 @@ def test_outstanding_page_groups_customer_once_per_company(client, app):
     assert "2 documents" in html
     assert "₹354.00" in html
     assert "/finance/outstanding/customer/" in html
+
+
+def test_outstanding_page_sorts_customers_by_name(client, app):
+    with app.app_context():
+        data = ids()
+        zulu_customer = Customer(
+            code="SORTZ001",
+            name="Sortorder Zulu Customer",
+            customer_type="CASH_AND_BILL",
+            default_credit_days=30,
+            active=True,
+        )
+        alpha_customer = Customer(
+            code="SORTA001",
+            name="Sortorder Alpha Customer",
+            customer_type="CASH_AND_BILL",
+            default_credit_days=30,
+            active=True,
+        )
+        db.session.add_all([zulu_customer, alpha_customer])
+        db.session.flush()
+        for customer, number in [
+            (zulu_customer, "SORTORDER-ZULU-INV"),
+            (alpha_customer, "SORTORDER-ALPHA-INV"),
+        ]:
+            create_sale(
+                {
+                    "company_id": data["ai"].id,
+                    "stock_book_id": data["ai_gst"].id,
+                    "customer_id": customer.id,
+                    "sale_type": "GST",
+                    "invoice_number": number,
+                    "invoice_date": "2026-06-23",
+                    "due_date": "2026-06-30",
+                },
+                [{"item_id": data["item"].id, "quantity": "1", "rate": "100", "gst_percent": "0"}],
+                admin(),
+            )
+        db.session.commit()
+
+    login(client)
+    response = client.get("/finance/outstanding?q=sortorder")
+    html = response.get_data(as_text=True)
+    customer_table = html.split("<h2>Customer Outstanding</h2>", 1)[1].split(
+        "<h2>Supplier Outstanding</h2>", 1
+    )[0]
+
+    assert response.status_code == 200
+    assert customer_table.index("Sortorder Alpha Customer") < customer_table.index("Sortorder Zulu Customer")
 
 
 def test_outstanding_page_groups_supplier_once_per_company(client, app):

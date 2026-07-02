@@ -154,6 +154,7 @@ document.addEventListener("click", async (event) => {
 });
 
 const APP_ICON_PATHS = {
+  "arrow-left": '<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
   "arrow-left-right": '<path d="M8 7h13"/><path d="m18 4 3 3-3 3"/><path d="M16 17H3"/><path d="m6 20-3-3 3-3"/>',
   "boxes": '<path d="M2.97 12.92 12 18.14l9.03-5.22"/><path d="M2.97 7.08 12 12.3l9.03-5.22"/><path d="M12 2 2.97 7.08 12 12.3l9.03-5.22L12 2Z"/><path d="M12 12.3v9.7"/>',
   "building-2": '<path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18"/><path d="M6 12H4a2 2 0 0 0-2 2v8"/><path d="M18 9h2a2 2 0 0 1 2 2v11"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/>',
@@ -162,6 +163,7 @@ const APP_ICON_PATHS = {
   "credit-card": '<rect width="20" height="14" x="2" y="5" rx="2"/><path d="M2 10h20"/>',
   "folder-open": '<path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6A2 2 0 0 1 18.46 20H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4.9a2 2 0 0 1 1.69.93l1.15 1.82H20a2 2 0 0 1 2 2v2"/>',
   "gem": '<path d="M6 3h12l4 6-10 12L2 9l4-6Z"/><path d="M11 3 8 9l4 12 4-12-3-6"/><path d="M2 9h20"/>',
+  "keyboard": '<path d="M10 8h.01"/><path d="M12 12h.01"/><path d="M14 8h.01"/><path d="M16 12h.01"/><path d="M18 8h.01"/><path d="M6 8h.01"/><path d="M7 16h10"/><path d="M8 12h.01"/><rect width="20" height="14" x="2" y="5" rx="2"/>',
   "layout-dashboard": '<rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/>',
   "moon": '<path d="M12 3a6 6 0 0 0 9 7.2A9 9 0 1 1 12 3Z"/>',
   "panel-left": '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/>',
@@ -601,6 +603,372 @@ document.addEventListener("change", async (event) => {
   }
 });
 
+const SHORTCUT_GUIDE = [
+  ["Esc / Alt + ←", "Go back to the previous app page"],
+  ["Ctrl + F", "Focus page search"],
+  ["Alt + F", "Run the current Find/Search"],
+  ["Ctrl + S / Ctrl + Enter", "Save the current form"],
+  ["Alt + A / Alt + N", "Add a line or add a new entry"],
+  ["F2 / Alt + E", "Edit the selected row"],
+  ["Alt + D", "Delete the selected row"],
+  ["Ctrl + P", "Print the selected row or current page"],
+  ["Alt + P", "Open PDF for the selected row/report"],
+  ["Alt + X", "Open XL/XLSX for the selected row/report"],
+  ["Alt + 1-9", "Open sidebar menu items"],
+  ["Alt + C", "Open calculator"],
+  ["Alt + L", "Open calendar"],
+  ["F1", "Show this shortcut help"],
+];
+
+let shortcutToastTimer;
+
+function initializeKeyboardShortcuts() {
+  if (document.body.dataset.shortcutsReady === "true") return;
+  document.body.dataset.shortcutsReady = "true";
+  document.addEventListener("keydown", handleKeyboardShortcut);
+}
+
+function handleKeyboardShortcut(event) {
+  if (event.defaultPrevented || event.isComposing) return;
+  const key = event.key.toLowerCase();
+  const primaryKey = event.ctrlKey || event.metaKey;
+  const typing = isEditableShortcutTarget(event.target);
+
+  if (key === "f1") {
+    event.preventDefault();
+    showShortcutHelp();
+    return;
+  }
+
+  if (key === "escape") {
+    if (closeShortcutHelp()) {
+      event.preventDefault();
+      return;
+    }
+    if (typing) return;
+    event.preventDefault();
+    navigateBack();
+    return;
+  }
+
+  if (event.altKey && key === "arrowleft") {
+    event.preventDefault();
+    navigateBack();
+    return;
+  }
+
+  if (primaryKey && key === "f") {
+    event.preventDefault();
+    focusPageSearch();
+    return;
+  }
+
+  if (primaryKey && (key === "s" || key === "enter")) {
+    event.preventDefault();
+    saveCurrentForm();
+    return;
+  }
+
+  if (primaryKey && key === "p") {
+    event.preventDefault();
+    triggerPrintShortcut();
+    return;
+  }
+
+  if (typing && !event.altKey) return;
+
+  if (event.altKey && key === "f") {
+    event.preventDefault();
+    triggerFindShortcut();
+    return;
+  }
+
+  if (event.altKey && (key === "a" || key === "n")) {
+    event.preventDefault();
+    triggerAddShortcut();
+    return;
+  }
+
+  if ((event.altKey && key === "e") || key === "f2") {
+    event.preventDefault();
+    triggerActionShortcut([/\bedit\b/], "Edit selected row", "Select a row first, then press F2 or Alt+E");
+    return;
+  }
+
+  if (event.altKey && key === "d") {
+    event.preventDefault();
+    triggerActionShortcut([/\bdelete\b/, /\bdeactivate\b/], "Delete selected row", "Select a row first, then press Alt+D", true);
+    return;
+  }
+
+  if (event.altKey && key === "p") {
+    event.preventDefault();
+    triggerActionShortcut([/\bpdf\b/, /\bopen pdf\b/], "Open PDF", "No PDF action found on this page");
+    return;
+  }
+
+  if (event.altKey && key === "x") {
+    event.preventDefault();
+    triggerActionShortcut([/\bxl\b/, /\bxlsx\b/, /\bcsv\b/], "Open spreadsheet export", "No XL/XLSX action found on this page");
+    return;
+  }
+
+  if (event.altKey && key === "c") {
+    event.preventDefault();
+    openFloatingToolShortcut("calculator");
+    return;
+  }
+
+  if (event.altKey && key === "l") {
+    event.preventDefault();
+    openFloatingToolShortcut("calendar");
+    return;
+  }
+
+  if (event.altKey && /^[1-9]$/.test(key)) {
+    event.preventDefault();
+    openSidebarShortcut(Number(key));
+  }
+}
+
+function isEditableShortcutTarget(target) {
+  if (!(target instanceof Element)) return false;
+  return Boolean(target.closest("input, textarea, select, [contenteditable='true']"));
+}
+
+function isShortcutVisible(element) {
+  if (!element || element.hidden) return false;
+  const style = window.getComputedStyle(element);
+  return style.display !== "none" && style.visibility !== "hidden" && style.opacity !== "0" && Boolean(element.offsetWidth || element.offsetHeight || element.getClientRects().length);
+}
+
+function visibleShortcutElements(selector, root = document) {
+  return Array.from(root.querySelectorAll(selector)).filter(isShortcutVisible);
+}
+
+function navigateBack() {
+  const button = document.querySelector("[data-back-button]");
+  const fallback = button?.dataset.backFallback || "/";
+  try {
+    const referrer = document.referrer ? new URL(document.referrer) : null;
+    if (referrer && referrer.origin === window.location.origin && window.history.length > 1) {
+      window.history.back();
+      return;
+    }
+  } catch (_) {
+    // Fall through to the in-app fallback below.
+  }
+  window.location.assign(fallback);
+}
+
+function focusPageSearch() {
+  const input = visibleShortcutElements("[data-live-search]")[0] || visibleShortcutElements("[data-global-search]")[0];
+  if (!input) {
+    showShortcutHint("No search box found on this page");
+    return false;
+  }
+  input.focus();
+  input.select?.();
+  showShortcutHint("Search focused");
+  return true;
+}
+
+function triggerFindShortcut() {
+  const activeForm = document.activeElement?.closest?.("[data-live-search-form]");
+  const button = activeForm?.querySelector("[data-live-find]") || visibleShortcutElements("[data-live-find]")[0];
+  if (button) {
+    button.click();
+    showShortcutHint("Find applied");
+    return true;
+  }
+  return focusPageSearch();
+}
+
+function saveCurrentForm() {
+  const activeForm = document.activeElement?.closest?.("form");
+  const activeSubmit = activeForm && primarySubmitButton(activeForm);
+  const button = activeSubmit || visibleShortcutElements("form .primary-button[type='submit'], form button[type='submit'].primary-button")[0];
+  if (!button) {
+    showShortcutHint("No save button found on this page");
+    return false;
+  }
+  button.click();
+  showShortcutHint("Save shortcut");
+  return true;
+}
+
+function primarySubmitButton(form) {
+  return visibleShortcutElements(".primary-button[type='submit'], button[type='submit'].primary-button", form)[0];
+}
+
+function triggerAddShortcut() {
+  const activeForm = document.activeElement?.closest?.("form");
+  const addLine = (activeForm && visibleShortcutElements("[data-add-line]", activeForm)[0]) || visibleShortcutElements("[data-add-line]")[0];
+  if (addLine) {
+    addLine.click();
+    showShortcutHint("Line added");
+    return true;
+  }
+  return triggerActionShortcut([/^add$/, /\badd\b/], "Add shortcut", "No add action found on this page");
+}
+
+function triggerPrintShortcut() {
+  if (triggerActionShortcut([/\bprint\b/], "Print", "", false, true)) return true;
+  window.print();
+  showShortcutHint("Print current page");
+  return true;
+}
+
+function triggerActionShortcut(patterns, successMessage, missingMessage, selectedOnly = false, quietMissing = false) {
+  const selectedRows = visibleShortcutElements("tbody tr.is-row-selected");
+  const roots = selectedRows.length ? selectedRows : [];
+  for (const root of roots) {
+    const action = findActionByLabel(root, patterns);
+    if (action) return clickShortcutAction(action, successMessage);
+  }
+  if (!selectedOnly) {
+    const action = findActionByLabel(document, patterns);
+    if (action) return clickShortcutAction(action, successMessage);
+  }
+  if (!quietMissing && missingMessage) showShortcutHint(missingMessage);
+  return false;
+}
+
+function findActionByLabel(root, patterns) {
+  return visibleShortcutElements("a, button", root).find((element) => {
+    if (element.disabled || element.closest("[data-shortcut-help], [data-back-button], [data-theme-toggle]")) return false;
+    const label = normalizeSearchText(
+      [
+        element.textContent,
+        element.getAttribute("aria-label"),
+        element.getAttribute("title"),
+        element.value,
+      ]
+        .filter(Boolean)
+        .join(" ")
+    );
+    return patterns.some((pattern) => pattern.test(label));
+  });
+}
+
+function clickShortcutAction(action, message) {
+  action.focus?.({ preventScroll: true });
+  action.click();
+  if (message) showShortcutHint(message);
+  return true;
+}
+
+function openFloatingToolShortcut(name) {
+  const button = visibleShortcutElements(`[data-tool-toggle="${name}"]`)[0];
+  if (!button) {
+    showShortcutHint(`${name === "calendar" ? "Calendar" : "Calculator"} is not available here`);
+    return false;
+  }
+  button.click();
+  showShortcutHint(name === "calendar" ? "Calendar opened" : "Calculator opened");
+  return true;
+}
+
+function openSidebarShortcut(position) {
+  const links = visibleShortcutElements(".nav a");
+  const link = links[position - 1];
+  if (!link) {
+    showShortcutHint(`No sidebar item at Alt+${position}`);
+    return false;
+  }
+  link.click();
+  return true;
+}
+
+function showShortcutHelp() {
+  closeShortcutHelp();
+  const backdrop = document.createElement("div");
+  backdrop.className = "shortcut-modal-backdrop";
+  backdrop.dataset.shortcutOverlay = "true";
+  backdrop.setAttribute("role", "presentation");
+
+  const modal = document.createElement("section");
+  modal.className = "shortcut-modal";
+  modal.setAttribute("role", "dialog");
+  modal.setAttribute("aria-modal", "true");
+  modal.setAttribute("aria-labelledby", "shortcut-help-title");
+
+  const header = document.createElement("div");
+  header.className = "shortcut-modal-header";
+  const headingWrap = document.createElement("div");
+  const heading = document.createElement("h2");
+  heading.id = "shortcut-help-title";
+  heading.textContent = "Keyboard Shortcuts";
+  const subtitle = document.createElement("p");
+  subtitle.textContent = "Excel/Tally-style actions for fast daily entry.";
+  headingWrap.append(heading, subtitle);
+  const close = document.createElement("button");
+  close.className = "icon-button";
+  close.type = "button";
+  close.dataset.shortcutClose = "true";
+  close.setAttribute("aria-label", "Close shortcut help");
+  close.textContent = "×";
+  header.append(headingWrap, close);
+
+  const list = document.createElement("div");
+  list.className = "shortcut-list";
+  SHORTCUT_GUIDE.forEach(([keys, action]) => {
+    const row = document.createElement("div");
+    row.className = "shortcut-row";
+    const shortcutKeys = document.createElement("kbd");
+    shortcutKeys.textContent = keys;
+    const label = document.createElement("span");
+    label.textContent = action;
+    row.append(shortcutKeys, label);
+    list.appendChild(row);
+  });
+
+  modal.append(header, list);
+  backdrop.appendChild(modal);
+  document.body.appendChild(backdrop);
+  close.focus();
+}
+
+function closeShortcutHelp() {
+  const overlay = document.querySelector("[data-shortcut-overlay]");
+  if (!overlay) return false;
+  overlay.remove();
+  return true;
+}
+
+function showShortcutHint(message) {
+  if (!message) return;
+  let toast = document.querySelector("[data-shortcut-toast]");
+  if (!toast) {
+    toast = document.createElement("div");
+    toast.className = "shortcut-toast";
+    toast.dataset.shortcutToast = "true";
+    toast.setAttribute("role", "status");
+    document.body.appendChild(toast);
+  }
+  toast.textContent = message;
+  window.clearTimeout(shortcutToastTimer);
+  shortcutToastTimer = window.setTimeout(() => toast.remove(), 1800);
+}
+
+document.addEventListener("click", (event) => {
+  const back = event.target.closest("[data-back-button]");
+  if (back) {
+    event.preventDefault();
+    navigateBack();
+    return;
+  }
+  if (event.target.closest("[data-shortcut-help]")) {
+    event.preventDefault();
+    showShortcutHelp();
+    return;
+  }
+  if (event.target.closest("[data-shortcut-close]") || event.target.matches("[data-shortcut-overlay]")) {
+    event.preventDefault();
+    closeShortcutHelp();
+  }
+});
+
 renderAppIcons();
 initializeThemeControls();
 initializeSidebarControls();
@@ -610,6 +978,7 @@ initializeDashboardVisuals();
 initializeCounters();
 initializeRipples();
 initializeSelectableRows();
+initializeKeyboardShortcuts();
 
 document.addEventListener("submit", (event) => {
   const form = event.target;
