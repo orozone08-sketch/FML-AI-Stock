@@ -16,17 +16,20 @@
   <body class="{{ active_company_theme.body_class }}">
     {% if current_user.is_authenticated %}
       <div class="app-shell">
-        <aside class="sidebar">
+        <aside class="sidebar" aria-label="Primary navigation">
           <button class="sidebar-collapse-button" type="button" data-sidebar-toggle aria-label="Collapse sidebar" title="Collapse sidebar">
             <span data-icon="panel-left"></span>
           </button>
           <a class="brand" href="{{ url_for('dashboard.index') }}">
-            <span class="brand-mark logo-mark company-brand-mark"><img src="{{ url_for('static', filename=company_logo(active_company), v=asset_version) }}" alt="{{ active_company.name if active_company else active_company_theme.app_name }}"></span>
+            <span class="brand-mark logo-mark company-brand-mark">
+              <img src="{{ url_for('static', filename=company_logo(active_company), v=asset_version) }}" alt="{{ active_company.name if active_company else active_company_theme.app_name }}">
+            </span>
             <span>
               <strong>{{ active_company_theme.app_name }}</strong>
               <small>{{ active_company_theme.tagline }}</small>
             </span>
           </a>
+
           <nav class="nav">
             {% set nav = [
               ('dashboard.index','dashboard','Dashboard', {}, 'layout-dashboard'),
@@ -55,6 +58,7 @@
               {% endif %}
             {% endfor %}
           </nav>
+
           <div class="sidebar-footer">
             {% for company in company_choices %}
               {% if not user_fixed_company or (active_company and active_company.id == company.id) %}
@@ -79,9 +83,15 @@
             </form>
           </div>
         </aside>
-        <main class="main">
+
+        <main class="main" id="main-content">
           <header class="topbar">
             <div class="topbar-copy">
+              <nav class="breadcrumbs" aria-label="Breadcrumb">
+                <a href="{{ url_for('dashboard.index') }}">Home</a>
+                <span aria-hidden="true">/</span>
+                <span aria-current="page">{{ self.page_title()|striptags }}</span>
+              </nav>
               <div class="topbar-title-row">
                 <button class="back-button" type="button" data-back-button data-back-fallback="{{ url_for('dashboard.index') }}" aria-label="Go back" title="Back (Esc)">
                   <span data-icon="arrow-left"></span>
@@ -91,22 +101,44 @@
               </div>
               <p>{% block page_subtitle %}Real-time stock, FIFO, payments and inter-company control{% endblock %}</p>
             </div>
+
             <div class="topbar-actions">
               <label class="global-search" aria-label="Search current page">
                 <span data-icon="search"></span>
                 <input type="search" placeholder="Search this page" data-global-search autocomplete="off" title="Search this page (Ctrl+F)">
               </label>
+
+              <div class="quick-actions" aria-label="Quick actions">
+                {% if can(current_user, 'sale', 'create') %}
+                  <a class="quick-action primary" href="{{ url_for('transactions.sale') }}">Sale</a>
+                {% endif %}
+                {% if can(current_user, 'purchase', 'create') %}
+                  <a class="quick-action" href="{{ url_for('transactions.purchase') }}">Purchase</a>
+                {% endif %}
+                {% if can(current_user, 'payments', 'create') %}
+                  <a class="quick-action" href="{{ url_for('payments.index') }}">Payment</a>
+                {% endif %}
+              </div>
+
               {% if active_company %}
-                <div class="company-chip">
-                  <img src="{{ url_for('static', filename=company_logo(active_company), v=asset_version) }}" alt="">
-                  <span>{{ active_company.name }}</span>
-                </div>
+                {% if not user_fixed_company %}
+                  <a class="company-chip" href="{{ url_for('company.choose') }}" title="Change company">
+                    <img src="{{ url_for('static', filename=company_logo(active_company), v=asset_version) }}" alt="">
+                    <span>{{ active_company.name }}</span>
+                  </a>
+                {% else %}
+                  <div class="company-chip">
+                    <img src="{{ url_for('static', filename=company_logo(active_company), v=asset_version) }}" alt="">
+                    <span>{{ active_company.name }}</span>
+                  </div>
+                {% endif %}
               {% else %}
-                <div class="company-chip">
+                <a class="company-chip" href="{{ url_for('company.choose') }}" title="Choose company">
                   <img src="{{ url_for('static', filename='img/fastockflow-icon.png', v=asset_version) }}" alt="">
                   <span>All companies</span>
-                </div>
+                </a>
               {% endif %}
+
               {% if due_alert_count is not none %}
                 <a class="bell-button" href="{{ url_for('reports.show', name='due-alerts') }}" title="Due alerts" aria-label="Due alerts">
                   <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -116,6 +148,7 @@
                   {% if due_alert_count > 0 %}<span class="alert-badge">{{ due_alert_count }}</span>{% endif %}
                 </a>
               {% endif %}
+
               <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle dark mode" title="Toggle dark mode">
                 <span data-icon="moon"></span>
               </button>
@@ -125,12 +158,15 @@
               <div class="user-chip">{{ current_user.name }} · {{ current_user.role }}</div>
             </div>
           </header>
-          {% include "macros/flashes.html" %}
-          {% block content %}{% endblock %}
-	        </main>
-	      </div>
-	      {% include "widgets/tools.html" %}
-	    {% else %}
+
+          <div class="content-container">
+            {% include "macros/flashes.html" %}
+            {% block content %}{% endblock %}
+          </div>
+        </main>
+      </div>
+      {% include "widgets/tools.html" %}
+    {% else %}
       {% include "macros/flashes.html" %}
       {% block public_content %}
         <main class="main public-main">
