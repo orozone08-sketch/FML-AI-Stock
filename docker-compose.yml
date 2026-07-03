@@ -1,35 +1,20 @@
 services:
-  db:
-    image: mysql:8.4
-    restart: unless-stopped
-    environment:
-      MYSQL_DATABASE: fastockflow
-      MYSQL_USER: fastockflow
-      MYSQL_PASSWORD: fastockflow
-      MYSQL_ROOT_PASSWORD: fastockflow_root
-    ports:
-      - "3306:3306"
-    volumes:
-      - mysql_data:/var/lib/mysql
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-ufastockflow", "-pfastockflow"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
   web:
     build: .
     restart: unless-stopped
     env_file:
       - .env
-    depends_on:
-      db:
-        condition: service_healthy
     ports:
       - "8000:8000"
     volumes:
       - uploads:/app/uploads
+    networks:
+      - shared-mysql
+
+networks:
+  shared-mysql:
+    external: true
+    name: shared-mysql
 
 volumes:
-  mysql_data:
   uploads:
