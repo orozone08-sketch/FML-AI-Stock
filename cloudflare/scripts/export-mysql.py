@@ -22,7 +22,7 @@ SCALES = {
     "quantity_out": ("quantity_out_milliunits", 1000), "rate": ("rate_ten_thousandths", 10000),
     "sale_rate": ("sale_rate_ten_thousandths", 10000), "unit_cost": ("unit_cost_ten_thousandths", 10000),
 }
-MONEY = {"value", "subtotal", "gst_amount", "line_total", "gst_total", "grand_total", "fifo_cost", "gross_profit",
+MONEY = {"value", "subtotal", "gst_amount", "line_total", "gst_total", "grand_total", "fifo_cost", "fifo_value", "gross_profit",
          "paid_amount", "balance_amount", "total_fifo_value", "original_value", "available_value", "total_amount",
          "allocated_amount", "unallocated_amount", "amount", "amount_owed", "settled_amount", "ledger_value"}
 BOOLS = {"active","force_password_change","allow_gst_purchase","allow_cash_purchase","allow_gst_sale","allow_cash_sale",

@@ -13,12 +13,18 @@ for (const [table, columns] of Object.entries(manifest.control_totals ?? {})) {
   for (const [column, expected] of Object.entries(columns)) queries.push(`SELECT '${table}.${column}' metric, COALESCE(SUM(${column}),0) actual, ${Number(expected)} expected FROM ${table}`);
 }
 queries.push("SELECT 'foreign_key_violations' metric, COUNT(*) actual, 0 expected FROM pragma_foreign_key_check");
-const command = ['wrangler','d1','execute','fastockflow-db',remote ? '--remote' : '--local','--json','--command',queries.join(';')];
-const result = spawnSync('npx', command, { encoding: 'utf8', shell: process.platform === 'win32' });
-if (result.status !== 0) { process.stderr.write(result.stderr); process.exit(result.status ?? 1); }
-const match = /\[\s*\{/.exec(result.stdout);
-if (!match) throw new Error(`Wrangler returned no JSON payload: ${result.stdout.slice(0,200)}`);
-const payload = JSON.parse(result.stdout.slice(match.index));
-const failures = payload.flatMap((entry) => entry.results ?? []).filter((row) => Number(row.actual) !== Number(row.expected));
+const executable = process.execPath;
+const wrangler = resolve('node_modules/wrangler/bin/wrangler.js');
+const failures = [];
+for (let index = 0; index < queries.length; index += 8) {
+  const batch = queries.slice(index, index + 8);
+  const command = ['d1','execute','fastockflow-db',remote ? '--remote' : '--local','--json','--command',batch.join(';')];
+  const result = spawnSync(executable, [wrangler, ...command], { encoding: 'utf8' });
+  if (result.status !== 0) { process.stderr.write(result.stderr ?? String(result.error ?? 'Wrangler failed')); process.exit(result.status ?? 1); }
+  const match = /\[\s*\{/.exec(result.stdout);
+  if (!match) throw new Error(`Wrangler returned no JSON payload: ${result.stdout.slice(0,200)}`);
+  const payload = JSON.parse(result.stdout.slice(match.index));
+  failures.push(...payload.flatMap((entry) => entry.results ?? []).filter((row) => Number(row.actual) !== Number(row.expected)));
+}
 if (failures.length) { console.error(JSON.stringify(failures,null,2)); process.exit(2); }
 console.log(`Verified ${queries.length} reconciliation controls for snapshot ${manifest.snapshot_id}`);
