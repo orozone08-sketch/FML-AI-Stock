@@ -1,0 +1,33 @@
+import { createHash } from 'node:crypto';
+import { cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { dirname, extname, join, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const source = resolve(root, '..', 'app', 'static');
+const output = join(root, 'public', 'static');
+await rm(output, { recursive: true, force: true });
+await mkdir(output, { recursive: true });
+const manifest = {};
+
+async function walk(directory) {
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) await walk(path);
+    else {
+      const logical = relative(source, path).replaceAll('\\', '/');
+      const bytes = await readFile(path);
+      const hash = createHash('sha256').update(bytes).digest('hex').slice(0, 12);
+      const extension = extname(entry.name);
+      const stem = entry.name.slice(0, -extension.length || undefined);
+      const targetName = `${stem}.${hash}${extension}`;
+      const target = join(output, dirname(logical), targetName);
+      await mkdir(dirname(target), { recursive: true });
+      await cp(path, target);
+      manifest[logical] = `/static/${join(dirname(logical), targetName).replaceAll('\\', '/')}`;
+    }
+  }
+}
+
+await walk(source);
+await writeFile(join(root, 'public', 'asset-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);

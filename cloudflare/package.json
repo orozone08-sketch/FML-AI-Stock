@@ -1,0 +1,32 @@
+{
+  "name": "fastockflow-cloudflare",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build:static": "node scripts/build-static.mjs",
+    "build": "npm run build:static && wrangler deploy --dry-run --outdir dist/worker",
+    "check:bundle": "node scripts/check-bundle.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:migration": "python -m unittest discover -s tests/migration && node --test tests/migration/*.test.mjs",
+    "test:watch": "vitest",
+    "db:migrate": "wrangler d1 migrations apply fastockflow-db --local",
+    "db:seed": "node scripts/seed-local.mjs",
+    "db:reset": "node scripts/reset-local.mjs",
+    "validate": "npm run build:static && npm run typecheck && npm test && npm run test:migration && npm run build && npm run check:bundle"
+  },
+  "dependencies": {
+    "hono": "4.12.30"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "0.18.4",
+    "@cloudflare/workers-types": "5.20260714.1",
+    "typescript": "5.8.3",
+    "vitest": "4.1.0",
+    "wrangler": "4.110.0"
+  }
+}

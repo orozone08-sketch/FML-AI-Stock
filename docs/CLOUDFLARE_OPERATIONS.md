@@ -1,0 +1,86 @@
+# FAstockFlow Cloudflare operations
+
+This runbook applies only to `cloudflare/serverless-migration`. The permanent production names are Worker `fastockflow`, D1 `fastockflow-db`, and private R2 bucket `fastockflow-files`. Never create suffixed preview resources. Never attach the custom domain or alter DNS during rehearsal.
+
+## Local setup and validation
+
+Use Node 22+, Python 3.12+, and a copied `cloudflare/.dev.vars.example` named `.dev.vars`. From `cloudflare/`:
+
+```powershell
+npm ci
+npm run db:reset
+npm run validate
+npx wrangler dev --local
+```
+
+The local seed is deterministic, contains only an `@local.invalid` account, forces a password change, and refuses `--remote`. Delete `.wrangler/state` and rerun `npm run db:reset` to prove migrations replay from zero.
+
+## Snapshot export
+
+Create a MySQL user with `SELECT` only. Do not use an application or administrative credential. Export files contain private business data and password hashes; place them on an encrypted local volume outside this repository and outside OneDrive/Dropbox/Google Drive/iCloud.
+
+```powershell
+$env:MYSQL_HOST='db.internal'
+$env:MYSQL_PORT='3306'
+$env:MYSQL_DATABASE='fastockflow'
+$env:MYSQL_USER='fastockflow_export_ro'
+$env:MYSQL_PASSWORD='<interactive-secret>'
+python scripts/export-mysql.py --output D:\secure-migrations\fastockflow-20260714
+Remove-Item Env:MYSQL_PASSWORD
+```
+
+TLS hostname verification is the default. `--allow-insecure-transport` is only acceptable through a separately authenticated trusted tunnel. The exporter starts a repeatable-read, read-only consistent snapshot, preserves IDs, rejects lossy scaled decimals or unsafe integers, creates duplicate-failing plain INSERTs, chunks output, and hashes every part. It never commits or writes to MySQL.
+
+## Local rehearsal
+
+```powershell
+npm run db:reset
+node scripts/import-d1.mjs D:\secure-migrations\fastockflow-20260714
+node scripts/verify-migration.mjs D:\secure-migrations\fastockflow-20260714
+```
+
+Verification compares all 26 source-model table counts, scaled money/quantity control totals, and foreign-key integrity. A nonzero exit or any unexplained difference stops migration. Representative login, company scope, opening, purchase, sale including negative stock, payment allocation, transfer, report, and audit tests must then pass.
+
+## Production resource bootstrap
+
+Before any remote mutation, run `npx wrangler whoami`, verify the intended account, and confirm the three permanent names are unused or exactly the intended resources. Replace the all-zero D1 ID only through the protected deployment workflow/secret. Do not commit an account ID, API token, or private export.
+
+Required GitHub environment `cloudflare-production` secrets:
+
+- `CLOUDFLARE_ACCOUNT_ID`
+- `CLOUDFLARE_API_TOKEN` with least privilege for this Worker, D1, R2 and Durable Object deployment
+- `FASTOCKFLOW_D1_DATABASE_ID`
+- `FASTOCKFLOW_WORKER_URL`
+
+The workflow verifies the tested commit and resource identity, records a D1 Time Travel bookmark, applies migrations, deploys, and checks `/healthz` and `/readyz`. It does not import production data or change DNS.
+
+## Remote import rehearsal
+
+Freeze application writes before a final snapshot/delta. Record the source snapshot time, old-app maintenance start, Git commit, Worker version, D1 bookmark, and an R2 inventory. Confirm the destination is the intended empty/new `fastockflow-db`.
+
+```powershell
+$env:EXPECTED_CLOUDFLARE_ACCOUNT_ID='<account-id>'
+$env:CLOUDFLARE_ACCOUNT_ID='<same-account-id>'
+$env:EXPECTED_D1_DATABASE_ID='<verified-database-uuid>'
+$env:EXPECTED_D1_DATABASE_NAME='fastockflow-db'
+node scripts/import-d1.mjs D:\secure-migrations\fastockflow-final --remote --confirm-production-import
+node scripts/verify-migration.mjs D:\secure-migrations\fastockflow-final --remote --confirm-production-read
+```
+
+Do not seed remote D1. Do not use `REPLACE`, silent upserts, or rerun a partially accepted import. On failure, keep writes frozen, preserve logs/request IDs, restore to the pre-import bookmark, and repeat against a clean destination only after diagnosis.
+
+## Cutover and observation
+
+Cutover requires zero unexplained reconciliation differences and explicit business approval. Import the final delta while old writes remain frozen, re-run reconciliation and authenticated acceptance, then change only the approved route/DNS. Keep VPS/MySQL intact and read-only. Monitor Worker errors/CPU, D1 rows read/written/storage, coordinator queue latency, idempotency conflicts, login failures, reconciliation alerts, and R2 operations. Alert at 50%, 70%, and 85% of free-tier daily limits.
+
+## Rollback boundaries
+
+1. Freeze Worker writes first. Record incident time, request IDs, deployment version and current D1 bookmark.
+2. Code rollback: redeploy the last schema-compatible verified Worker commit.
+3. D1 rollback: with writes stopped, restore the recorded Time Travel bookmark, then deploy matching code. Code rollback alone does not reverse data/schema.
+4. R2 rollback: restore from the independently verified object inventory/backup. D1 Time Travel never restores R2.
+5. Full service rollback: route the approved domain back to the preserved VPS, verify MySQL is the chosen consistent source, then resume writes there only.
+
+Never restore D1 while writes continue, bulk-delete R2 without a reviewed manifest, or allow both MySQL and D1 to accept production writes. VPS/MySQL retirement is a separate explicitly approved task after the observation window and verified backups.
+
+After acceptance, securely erase snapshot parts according to the agreed retention policy and retain only non-sensitive reconciliation evidence, snapshot IDs, hashes, bookmarks, and approval records.

@@ -1,0 +1,65 @@
+name: Cloudflare production deploy
+on:
+  workflow_run:
+    workflows: ['Cloudflare validation']
+    types: [completed]
+permissions:
+  contents: read
+concurrency:
+  group: fastockflow-cloudflare-production
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'cloudflare/serverless-migration'
+    runs-on: ubuntu-latest
+    environment: cloudflare-production
+    defaults:
+      run:
+        working-directory: cloudflare
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      EXPECTED_D1_DATABASE_ID: ${{ secrets.FASTOCKFLOW_D1_DATABASE_ID }}
+      HEALTHCHECK_URL: ${{ secrets.FASTOCKFLOW_WORKER_URL }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: cloudflare/package-lock.json
+      - run: npm ci
+      - name: Verify exact tested commit and production resource identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.workflow_run.head_sha }}"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          test -n "$EXPECTED_D1_DATABASE_ID"
+          test "$EXPECTED_D1_DATABASE_ID" != '00000000-0000-0000-0000-000000000000'
+          grep -q '"name": "fastockflow"' wrangler.jsonc
+          grep -q '"database_name": "fastockflow-db"' wrangler.jsonc
+          grep -q '"bucket_name": "fastockflow-files"' wrangler.jsonc
+          sed -i "s/00000000-0000-0000-0000-000000000000/$EXPECTED_D1_DATABASE_ID/" wrangler.jsonc
+          npx wrangler whoami
+          npx wrangler d1 info fastockflow-db --json | tee /tmp/d1-info.json
+          grep -q "$EXPECTED_D1_DATABASE_ID" /tmp/d1-info.json
+      - run: npm run validate
+      - name: Record D1 recovery point
+        run: npx wrangler d1 time-travel info fastockflow-db --json | tee /tmp/d1-recovery-point.json
+      - name: Apply immutable migrations
+        run: npx wrangler d1 migrations apply fastockflow-db --remote
+      - name: Deploy tested Worker
+        run: npx wrangler deploy
+      - name: Non-destructive post-deploy checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$HEALTHCHECK_URL"
+          curl --fail --retry 5 --retry-all-errors --max-time 15 "$HEALTHCHECK_URL/healthz"
+          curl --fail --retry 5 --retry-all-errors --max-time 15 "$HEALTHCHECK_URL/readyz"
