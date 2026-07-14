@@ -433,7 +433,7 @@ transactions.get("/opening", async (c) => {
 });
 transactions.get("/opening/stock/new", async (c) =>
   c.html(
-    layout("Opening Stock", await documentForm(c, "purchase"), c.get("user")),
+    layout("Opening Stock", (await documentForm(c, "purchase")).replace('<form method="post">', '<form method="post" action="/transactions/opening/stock">'), c.get("user")),
   ),
 );
 transactions.post("/opening/:section", async (c) => {

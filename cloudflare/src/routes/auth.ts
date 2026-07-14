@@ -99,7 +99,7 @@ auth.post("/admin/login", async (c) => {
 auth.get("/register", async (c) => {
   if (c.get("user")) return c.redirect("/dashboard/", 303);
   const options = (await companies(c.env.DB)).map((row) => `<option value="${row.id}">${escapeHtml(row.name)}</option>`).join("");
-  return c.html(layout("Register", `<form method="post"><label>Company<select name="company_id" required>${options}</select></label>${formField("name", "Name", "", "text", true)}${formField("email", "Login ID", "", "email", true)}${formField("password", "Password", "", "password", true)}${formField("confirm_password", "Confirm password", "", "password", true)}<button>Register</button></form>`, null));
+  return c.html(layout("Register", `<form method="post">${formField("invite_key", "Registration invite", "", "password", true)}<label>Company<select name="company_id" required>${options}</select></label>${formField("name", "Name", "", "text", true)}${formField("email", "Login ID", "", "email", true)}${formField("password", "Password", "", "password", true)}${formField("confirm_password", "Confirm password", "", "password", true)}<button>Register</button></form>`, null));
 });
 
 auth.post("/register", async (c) => {
@@ -107,7 +107,9 @@ auth.post("/register", async (c) => {
   const name = String(body.name ?? "").trim();
   const email = String(body.email ?? "").trim().toLowerCase();
   const password = String(body.password ?? "");
+  const inviteValid = await hmac(String(body.invite_key ?? ""), c.env.CSRF_HMAC_KEY) === await hmac(c.env.REGISTRATION_INVITE_KEY, c.env.CSRF_HMAC_KEY);
   const companyId = Number.parseInt(String(body.company_id ?? ""), 10);
+  if (!inviteValid) return c.text("Invalid registration invite", 403);
   if (!name || !email || password.length < 8 || password !== String(body.confirm_password ?? "") || !Number.isSafeInteger(companyId)) return c.text("Invalid registration", 400);
   const company = await c.env.DB.prepare("SELECT id FROM companies WHERE id=? AND active=1").bind(companyId).first();
   if (!company) return c.text("Invalid company", 400);
@@ -117,7 +119,10 @@ auth.post("/register", async (c) => {
       VALUES(?,?,?,?,?,1,0,?,?)`).bind(name, email, await createPbkdf2Hash(password), companyId, "ADMIN" satisfies Role, now, now).run();
     await c.env.DB.prepare("INSERT INTO audit_logs(user_id,action,entity_type,entity_id,reference,created_at) VALUES(?,'register','User',?,?,?)")
       .bind(result.meta.last_row_id, String(result.meta.last_row_id), email, now).run();
-  } catch { return c.text("That login ID is already registered", 409); }
+  } catch (error) {
+    console.error(JSON.stringify({ event: "registration_failed", requestId: c.get("requestId"), error: error instanceof Error ? error.message : String(error) }));
+    return c.text(error instanceof Error && error.message.includes("UNIQUE") ? "That login ID is already registered" : "Registration could not be completed", error instanceof Error && error.message.includes("UNIQUE") ? 409 : 500);
+  }
   return c.redirect("/login", 303);
 });
 

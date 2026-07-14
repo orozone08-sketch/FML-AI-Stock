@@ -17,18 +17,18 @@ export function qty(milli: unknown): string {
 
 function nav(user: AuthUser): string {
   const links: Array<[string, string, string]> = [
-    ["dashboard", "/dashboard/", "Dashboard"], ["items", "/masters/items", "Items"],
+    ["dashboard", "/dashboard", "Dashboard"], ["items", "/masters/items", "Items"],
     ["customers", "/masters/customers", "Customers"], ["suppliers", "/masters/suppliers", "Suppliers"],
     ["purchase", "/transactions/purchase", "Purchases"], ["sale", "/transactions/sale", "Sales"],
     ["transfer", "/transactions/transfer", "Transfers"], ["opening", "/transactions/opening", "Opening"],
     ["payments", "/finance/payments", "Payments"], ["outstanding", "/finance/outstanding", "Outstanding"],
-    ["reports", "/reports/", "Reports"], ["users", "/users/", "Users"],
+    ["reports", "/reports", "Reports"], ["users", "/users", "Users"],
   ];
   return links.filter(([module]) => can(user, module)).map(([, href, label]) => `<a href="${href}">${escapeHtml(label)}</a>`).join("");
 }
 
 export function layout(title: string, body: string, user: AuthUser | null, options: { message?: string; scripts?: string } = {}): string {
-  const shell = user ? `<header><a class="brand" href="/dashboard/">FAstockFlow</a><nav>${nav(user)}</nav><span>${escapeHtml(user.name)}</span><form method="post" action="/logout"><input type="hidden" name="csrf_token" value="${escapeHtml(user.csrfToken)}"><button>Logout</button></form></header>` : "";
+  const shell = user ? `<header><a class="brand" href="/dashboard">FAstockFlow</a><nav>${nav(user)}</nav><span>${escapeHtml(user.name)}</span><form method="post" action="/logout"><input type="hidden" name="csrf_token" value="${escapeHtml(user.csrfToken)}"><button>Logout</button></form></header>` : "";
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)} · FAstockFlow</title><link rel="stylesheet" href="/static/app.css"></head><body>${shell}<main><h1>${escapeHtml(title)}</h1>${options.message ? `<div class="flash">${escapeHtml(options.message)}</div>` : ""}${body}</main>${options.scripts ?? ""}</body></html>`;
 }
 

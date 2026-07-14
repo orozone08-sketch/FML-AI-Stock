@@ -15,6 +15,8 @@ npx wrangler dev --local
 
 The local seed is deterministic, contains only an `@local.invalid` account, forces a password change, and refuses `--remote`. Delete `.wrangler/state` and rerun `npm run db:reset` to prove migrations replay from zero.
 
+Production self-registration requires the `REGISTRATION_INVITE_KEY` Worker secret. Cloudflare Web Crypto accepts at most 100,000 PBKDF2 iterations; imported Werkzeug password hashes with a higher iteration count must be marked for a controlled password reset before cutover because they cannot be verified at the edge.
+
 ## Snapshot export
 
 Create a MySQL user with `SELECT` only. Do not use an application or administrative credential. Export files contain private business data and password hashes; place them on an encrypted local volume outside this repository and outside OneDrive/Dropbox/Google Drive/iCloud.

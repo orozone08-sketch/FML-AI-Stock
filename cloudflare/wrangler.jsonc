@@ -18,12 +18,12 @@
   "d1_databases": [{
     "binding": "DB",
     "database_name": "fastockflow-db",
-    "database_id": "00000000-0000-0000-0000-000000000000",
+    "database_id": "30d2ab28-4ca5-4770-a4ae-28b6c38086cd",
     "migrations_dir": "migrations"
   }],
   "r2_buckets": [{ "binding": "FILES", "bucket_name": "fastockflow-files" }],
   "durable_objects": { "bindings": [{ "name": "ACCOUNTING", "class_name": "AccountingCoordinator" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["AccountingCoordinator"] }],
-  "vars": { "APP_ENV": "production", "APP_NAME": "FAstockFlow", "SCHEMA_VERSION": "0003", "SITE_URL": "https://fastockflow.workers.dev" },
+  "vars": { "APP_ENV": "production", "APP_NAME": "FAstockFlow", "SCHEMA_VERSION": "0003", "SITE_URL": "https://fastockflow.stepper.workers.dev" },
   "observability": { "enabled": true, "head_sampling_rate": 1 }
 }

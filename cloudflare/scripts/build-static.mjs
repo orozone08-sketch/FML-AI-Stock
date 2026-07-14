@@ -24,6 +24,7 @@ async function walk(directory) {
       const target = join(output, dirname(logical), targetName);
       await mkdir(dirname(target), { recursive: true });
       await cp(path, target);
+      if (logical === 'css/app.css' || logical === 'js/app.js') await cp(path, join(output, entry.name));
       manifest[logical] = `/static/${join(dirname(logical), targetName).replaceAll('\\', '/')}`;
     }
   }

@@ -46,7 +46,7 @@ export async function verifyWerkzeugPbkdf2(password: string, stored: string): Pr
   return difference === 0;
 }
 
-export async function createPbkdf2Hash(password: string, iterations = 600_000): Promise<string> {
+export async function createPbkdf2Hash(password: string, iterations = 100_000): Promise<string> {
   const salt = randomToken(12);
   const key = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
   const derived = new Uint8Array(await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt: encoder.encode(salt), iterations }, key, 256));
