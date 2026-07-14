@@ -1,8 +1,11 @@
 # FAstockFlow Cloudflare Serverless Rewrite Plan
 
-Status: implementation plan  
-Source baseline: `origin/main` at `7007c397053aedf9bafe0cf06b0d2308b215e8bc`  
-Migration branch: `cloudflare/serverless-migration`  
+Status: implementation plan
+
+Source baseline: `origin/main` at `7007c397053aedf9bafe0cf06b0d2308b215e8bc`
+
+Migration branch: `cloudflare/serverless-migration`
+
 Prepared: 2026-07-14
 
 ## 1. Outcome and non-negotiable decisions
