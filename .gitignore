@@ -10,6 +10,4 @@ instance/
 *.db
 /uploads/
 /exports/
-/.wrangler/
-/work/
 .DS_Store

@@ -1,8 +1,0 @@
-.dev.vars
-node_modules/
-.wrangler/
-dist/
-coverage/
-public/static/
-public/asset-manifest.json
-*.sql.tmp

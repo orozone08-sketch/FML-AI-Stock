@@ -1,5 +1,0 @@
-/static/immutable/*
-  Cache-Control: public, max-age=31536000, immutable
-
-/asset-manifest.json
-  Cache-Control: public, max-age=0, must-revalidate
