@@ -1,7 +1,7 @@
 name: Cloudflare validation
 on:
   push:
-    branches: [cloudflare/serverless-migration]
+    branches: [main]
     paths: ['cloudflare/**', '.github/workflows/cloudflare-*.yml']
   pull_request:
     paths: ['cloudflare/**', '.github/workflows/cloudflare-*.yml']
