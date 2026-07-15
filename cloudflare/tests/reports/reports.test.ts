@@ -60,7 +60,7 @@ describe("D1 report repository", () => {
     const result = await new ReportRepository(db,{ activeCompanyId:4 }).named("sales",{ from:"2026-01-01",to:"2026-06-30",cursorDate:"2026-06-02",cursorId:10,limit:1 });
     expect(result).toMatchObject({ hasMore:true, rows:[{ id:9 }], nextCursor:{ date:"2026-06-01",id:9 } });
     expect(calls[0]?.sql).toContain("s.company_id=?");
-    expect(calls[0]?.sql).toContain("ORDER BY date DESC, id DESC LIMIT ?");
+    expect(calls[0]?.sql).toContain("ORDER BY s.invoice_date DESC, s.id DESC LIMIT ?");
     expect(calls[0]?.sql.toUpperCase()).not.toContain("SELECT *");
     expect(calls[0]?.values).toEqual([4,"2026-01-01","2026-06-30","2026-06-02","2026-06-02",10,2]);
   });

@@ -12,6 +12,7 @@
     "check:bundle": "node scripts/check-bundle.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage --config vitest.coverage.config.ts",
     "test:migration": "python -m unittest discover -s tests/migration && node --test tests/migration/*.test.mjs",
     "test:watch": "vitest",
     "db:migrate": "wrangler d1 migrations apply fastockflow-db --local",
@@ -25,6 +26,7 @@
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "0.18.4",
     "@cloudflare/workers-types": "5.20260714.1",
+    "@vitest/coverage-v8": "^4.1.0",
     "typescript": "5.8.3",
     "vitest": "4.1.0",
     "wrangler": "4.110.0"

@@ -11,6 +11,7 @@ import finance from "./routes/finance";
 import reports from "./routes/reports";
 import customers from "./routes/customers";
 import financeRead from "./routes/finance-read";
+import files from "./routes/files";
 import { escapeHtml, layout } from "./views/html";
 
 const app = new Hono<{ Bindings: Env; Variables: AppVariables }>({ strict: false });
@@ -28,10 +29,10 @@ app.get("/readyz", async (c) => {
   }
 });
 
-for (const prefix of ["/dashboard/*", "/company/*", "/masters/*", "/users/*", "/transactions/*", "/finance/*", "/reports/*", "/customers/*"]) {
+for (const prefix of ["/dashboard/*", "/company/*", "/masters/*", "/users/*", "/transactions/*", "/finance/*", "/reports/*", "/customers/*", "/files/*"]) {
   app.use(prefix, requireAuth);
 }
-for (const prefix of ["/company/*", "/masters/*", "/users/*", "/transactions/*", "/finance/*"]) {
+for (const prefix of ["/company/*", "/masters/*", "/users/*", "/transactions/*", "/finance/*", "/files/*"]) {
   app.use(prefix, requireCsrf);
 }
 app.use("/logout", requireAuth, requireCsrf);
@@ -47,6 +48,7 @@ app.route("/finance", finance);
 app.route("/finance", financeRead);
 app.route("/reports", reports);
 app.route("/customers", customers);
+app.route("/files", files);
 
 app.notFound((c) => c.html(layout("Not Found", `<p>The requested page was not found.</p><p><a href="/">Return home</a></p>`, c.get("user")), 404));
 app.onError((error, c) => {

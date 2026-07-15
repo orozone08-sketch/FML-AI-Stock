@@ -39,6 +39,58 @@ masters.get("/:kind", async (c) => {
   return c.html(layout(item.title, controls + table([...item.columns, "Actions"], rendered), user));
 });
 
+function scopedCompany(user: any, column: string): { clause: string; values: number[] } {
+  return user.activeCompanyId ? { clause: ` AND ${column}=?`, values: [user.activeCompanyId] } : { clause: "", values: [] };
+}
+
+function csvValue(value: unknown): string {
+  let text=String(value ?? "");
+  if (/^[=+@-]/.test(text)) text=`'${text}`;
+  return /[",\r\n]/.test(text) ? `"${text.replaceAll('"','""')}"` : text;
+}
+
+async function customerStatement(c: any, customerId: number) {
+  const user=c.get("user")!; const scope=scopedCompany(user,"company_id");
+  const customer=await c.env.DB.prepare("SELECT id,code,name,contact_person,customer_type,gst_number,mobile,whatsapp,email,address,city,state,default_credit_days,active,notes FROM customers WHERE id=?").bind(customerId).first() as Record<string,unknown> | null;
+  if(!customer) return null;
+  const [sales,receivables,payments]=await c.env.DB.batch([
+    c.env.DB.prepare(`SELECT invoice_date date,'SALE' kind,invoice_number reference,grand_total_paise amount_paise,balance_amount_paise,payment_status,id FROM sales WHERE customer_id=? AND is_void=0${scope.clause} ORDER BY invoice_date DESC,id DESC LIMIT 200`).bind(customerId,...scope.values),
+    c.env.DB.prepare(`SELECT document_date date,source_type kind,document_number reference,total_amount_paise amount_paise,balance_amount_paise,payment_status,id FROM receivables WHERE customer_id=?${scope.clause} ORDER BY document_date DESC,id DESC LIMIT 200`).bind(customerId,...scope.values),
+    c.env.DB.prepare(`SELECT payment_date date,payment_type kind,COALESCE(reference_number,'') reference,total_amount_paise amount_paise,unallocated_amount_paise balance_amount_paise,'PAID' payment_status,id FROM payments WHERE customer_id=?${scope.clause} ORDER BY payment_date DESC,id DESC LIMIT 200`).bind(customerId,...scope.values),
+  ]);
+  return {customer,rows:[...(sales?.results??[]),...(receivables?.results??[]),...(payments?.results??[])].sort((a:any,b:any)=>String(b.date).localeCompare(String(a.date))||Number(b.id)-Number(a.id)).slice(0,200)};
+}
+
+masters.get("/customers/:customerId",async(c)=>{
+  if(!can(c.get("user"),"customers","view"))return c.text("Forbidden",403);
+  const statement=await customerStatement(c,Number(c.req.param("customerId"))); if(!statement)return c.notFound();
+  const rows=statement.rows.map((row:any)=>[escapeHtml(row.date),escapeHtml(row.kind),escapeHtml(row.reference),escapeHtml((Number(row.amount_paise??0)/100).toFixed(2)),escapeHtml((Number(row.balance_amount_paise??0)/100).toFixed(2)),escapeHtml(row.payment_status)]);
+  return c.html(layout(String(statement.customer.name),`<p>${escapeHtml(statement.customer.code)} · ${escapeHtml(statement.customer.mobile)} · ${escapeHtml(statement.customer.gst_number)}</p><p><a href="${c.req.path}/print">Print</a> <a href="${c.req.path}/export/csv">Export CSV</a></p>${table(["Date","Type","Reference","Amount","Balance","Status"],rows)}`,c.get("user")));
+});
+
+masters.get("/customers/:customerId/print",async(c)=>{
+  if(!can(c.get("user"),"customers","view"))return c.text("Forbidden",403);
+  const statement=await customerStatement(c,Number(c.req.param("customerId")));if(!statement)return c.notFound();
+  const rows=statement.rows.map((row:any)=>[escapeHtml(row.date),escapeHtml(row.kind),escapeHtml(row.reference),escapeHtml((Number(row.amount_paise??0)/100).toFixed(2)),escapeHtml((Number(row.balance_amount_paise??0)/100).toFixed(2))]);
+  return c.html(layout(`${statement.customer.name} Statement`,table(["Date","Type","Reference","Amount","Balance"],rows),c.get("user")));
+});
+
+masters.get("/customers/:customerId/export/:fmt",async(c)=>{
+  if(!can(c.get("user"),"customers","export"))return c.text("Forbidden",403);
+  if(c.req.param("fmt")!=="csv")return c.text("Unsupported format",400);
+  const statement=await customerStatement(c,Number(c.req.param("customerId")));if(!statement)return c.notFound();
+  const csv=`\uFEFFDate,Type,Reference,Amount,Balance,Status\r\n${statement.rows.map((r:any)=>[r.date,r.kind,r.reference,(Number(r.amount_paise??0)/100).toFixed(2),(Number(r.balance_amount_paise??0)/100).toFixed(2),r.payment_status].map(csvValue).join(",")).join("\r\n")}\r\n`;
+  return new Response(csv,{headers:{"content-type":"text/csv; charset=utf-8","content-disposition":`attachment; filename="customer-${Number(c.req.param("customerId"))}.csv"`}});
+});
+
+masters.get("/suppliers/:supplierId/transactions",async(c)=>{
+  if(!can(c.get("user"),"suppliers","view"))return c.text("Forbidden",403);
+  const id=Number(c.req.param("supplierId")),user=c.get("user")!,scope=scopedCompany(user,"p.company_id");
+  const supplier=await c.env.DB.prepare("SELECT id,code,name,gst_number,mobile,email,address,active FROM suppliers WHERE id=?").bind(id).first<Record<string,unknown>>();if(!supplier)return c.notFound();
+  const rows=await c.env.DB.prepare(`SELECT p.bill_date,p.bill_number,p.grand_total_paise,p.balance_amount_paise,p.payment_status FROM purchases p WHERE p.supplier_id=? AND p.is_void=0${scope.clause} ORDER BY p.bill_date DESC,p.id DESC LIMIT 200`).bind(id,...scope.values).all<Record<string,unknown>>();
+  return c.html(layout(`${supplier.name} Transactions`,table(["Date","Bill","Amount","Balance","Status"],rows.results.map(r=>[escapeHtml(r.bill_date),escapeHtml(r.bill_number),escapeHtml((Number(r.grand_total_paise)/100).toFixed(2)),escapeHtml((Number(r.balance_amount_paise)/100).toFixed(2)),escapeHtml(r.payment_status)])),user));
+});
+
 masters.get("/:kind/new", async (c) => {
   const item = config(c.req.param("kind")); if (!item) return c.notFound(); if (!authorized(c, item, "create")) return c.text("Forbidden", 403);
   const user = c.get("user")!;

@@ -60,14 +60,14 @@ auth.get("/login/company/:id", async (c) => {
   return c.html(loginPage(await companies(c.env.DB), "", c.req.param("id")));
 });
 
-auth.post("/login", async (c) => {
+async function handleCompanyLogin(c: any, forcedCompanyId?: number) {
   const body = await c.req.parseBody();
   const email = String(body.email ?? "").trim().toLowerCase();
   const password = String(body.password ?? "");
-  const companyId = Number.parseInt(String(body.company_id ?? ""), 10);
+  const companyId = forcedCompanyId ?? Number.parseInt(String(body.company_id ?? ""), 10);
   const rows = await companies(c.env.DB);
   if (await throttled(c.env, c.req.raw, email)) return c.html(loginPage(rows, "Too many failed attempts. Try again later.", String(companyId)), 429);
-  const user = await c.env.DB.prepare("SELECT id,name,email,password_hash,company_id,role,active FROM users WHERE email=? LIMIT 1").bind(email).first<Record<string, unknown>>();
+  const user = await c.env.DB.prepare("SELECT id,name,email,password_hash,company_id,role,active FROM users WHERE email=? LIMIT 1").bind(email).first() as Record<string, unknown> | null;
   const valid = Boolean(user?.active) && await verifyWerkzeugPbkdf2(password, String(user?.password_hash ?? ""));
   const companyValid = user?.company_id != null && Number(user.company_id) === companyId;
   if (!valid || !companyValid) {
@@ -84,6 +84,12 @@ auth.post("/login", async (c) => {
   ]);
   const next = c.req.query("next");
   return c.redirect(next?.startsWith("/") && !next.startsWith("//") ? next : "/dashboard/", 303);
+}
+
+auth.post("/login", (c) => handleCompanyLogin(c));
+auth.post("/login/company/:id", (c) => {
+  const companyId = Number.parseInt(c.req.param("id"), 10);
+  return Number.isSafeInteger(companyId) && companyId > 0 ? handleCompanyLogin(c, companyId) : c.text("Invalid company", 400);
 });
 
 auth.get("/admin/login", async (c) => {

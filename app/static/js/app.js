@@ -64,6 +64,26 @@ async function playTone(kind) {
 }
 
 document.addEventListener("click", async (event) => {
+  const addLine = event.target.closest("[data-add-line]");
+  if (addLine) {
+    const table = addLine.previousElementSibling?.matches("#lines") ? addLine.previousElementSibling : addLine.closest("form")?.querySelector("#lines");
+    const template = table?.querySelector("tbody [data-line-row]");
+    if (template) {
+      const row = template.cloneNode(true);
+      row.querySelectorAll("input").forEach((input) => { input.value = input.name === "rate[]" || input.name === "gst_percent[]" ? "0" : ""; });
+      row.querySelectorAll("select").forEach((select) => { select.selectedIndex = 0; });
+      table.querySelector("tbody")?.appendChild(row);
+      row.querySelector("select, input")?.focus();
+    }
+    return;
+  }
+  const removeLine = event.target.closest("[data-remove-line]");
+  if (removeLine) {
+    const row = removeLine.closest("[data-line-row]");
+    const body = row?.parentElement;
+    if (row && body && body.querySelectorAll("[data-line-row]").length > 1) row.remove();
+    return;
+  }
   const authNote = event.target.closest("[data-auth-note]");
   if (authNote) {
     event.preventDefault();

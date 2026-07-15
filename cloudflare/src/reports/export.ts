@@ -17,7 +17,14 @@ function fixed(value: bigint, scale: bigint, places: number): string {
   return `${negative ? "-" : ""}${absolute / scale}.${(absolute % scale).toString().padStart(places,"0")}`;
 }
 
-function csvCell(value: string): string { return /[",\r\n]/.test(value) ? `"${value.replaceAll('"','""')}"` : value; }
+function csvCell(value: string): string {
+  // Spreadsheet applications execute cells beginning with these characters as
+  // formulas. Prefixing a single quote is the interoperable text escape and is
+  // applied after exact scaled-integer formatting, so no numeric conversion or
+  // precision loss is introduced.
+  const safe = /^[\t\r\n ]*[=+\-@]/.test(value) ? `'${value}` : value;
+  return /[",\r\n]/.test(safe) ? `"${safe.replaceAll('"','""')}"` : safe;
+}
 
 export function toCsv(rows: Record<string, unknown>[]): string {
   if (!rows.length) return "";

@@ -6,6 +6,17 @@ type Row = Record<string, unknown>;
 
 function add(where: string[], values: unknown[], expression: string, value: unknown): void { where.push(expression); values.push(value); }
 
+// Never use an unqualified `id` in joined report SQL: SQLite resolves ORDER BY
+// and keyset predicates against every input table, not just the projected alias.
+const ID_COLUMN: Readonly<Record<string,string>> = {
+  "current-stock":"b.item_id", "fifo-valuation":"f.id", "fifo-layers":"f.id", "stock-ledger":"l.id",
+  purchases:"p.id", "purchases-monthly":"p.id", sales:"s.id", "sales-monthly":"s.id", "sales-by-type":"s.id",
+  "gross-profit":"s.id", "customer-outstanding":"r.id", "supplier-outstanding":"p.id", advances:"p.id",
+  "payment-history":"p.id", "due-alerts":"x.id", "stock-alerts":"b.item_id", "inter-company":"l.id",
+  "opening-summary":"x.id", "purchase-price-fluctuation":"l.id", "sale-price-fluctuation":"l.id",
+  audit:"a.id", "item-ledger":"l.id", "customer-ledger":"x.id",
+};
+
 export class ReportRepository {
   constructor(private readonly db: D1Database, private readonly scope: CompanyScope) {}
 
@@ -20,14 +31,16 @@ export class ReportRepository {
     if (filters.itemId) add(where, values, `${name.includes("price-fluctuation") ? "l" : name === "current-stock" || name === "stock-alerts" ? "b" : name.startsWith("fifo") ? "f" : "l"}.item_id=?`, filters.itemId);
     if (filters.stockBookId) add(where, values, `${name === "current-stock" || name === "stock-alerts" ? "b" : name.startsWith("fifo") ? "f" : "l"}.stock_book_id=?`, filters.stockBookId);
     if (filters.customerId && ["sales","gross-profit"].includes(name)) add(where, values, "s.customer_id=?", filters.customerId);
-    if (filters.cursorDate && filters.cursorId && definition.dateColumn) { where.push(`(${definition.dateColumn}<? OR (${definition.dateColumn}=? AND id<?))`); values.push(filters.cursorDate, filters.cursorDate, filters.cursorId); }
+    const idColumn = ID_COLUMN[name];
+    if (!idColumn) throw new Error(`Report ${name} has no deterministic ID column.`);
+    if (filters.cursorDate && filters.cursorId && definition.dateColumn) { where.push(`(${definition.dateColumn}<? OR (${definition.dateColumn}=? AND ${idColumn}<?))`); values.push(filters.cursorDate, filters.cursorDate, filters.cursorId); }
     const grouped = ["fifo-valuation","purchases-monthly","sales-monthly","sales-by-type","customer-outstanding","supplier-outstanding"].includes(name);
     const groups: Record<string,string> = {
       "fifo-valuation":"f.company_id,f.stock_book_id,f.item_id", "purchases-monthly":"substr(p.bill_date,1,7),p.company_id",
       "sales-monthly":"substr(s.invoice_date,1,7),s.company_id", "sales-by-type":"s.company_id,s.sale_type",
       "customer-outstanding":"r.company_id,r.customer_id", "supplier-outstanding":"p.company_id,p.supplier_id",
     };
-    const sql = `${definition.sql}${where.length ? ` AND ${where.join(" AND ")}` : ""}${grouped ? ` GROUP BY ${groups[name]}` : ""} ORDER BY ${definition.dateColumn ? "date DESC," : ""} id DESC LIMIT ?`;
+    const sql = `${definition.sql}${where.length ? ` AND ${where.join(" AND ")}` : ""}${grouped ? ` GROUP BY ${groups[name]}` : ""} ORDER BY ${definition.dateColumn ? `${definition.dateColumn} DESC,` : ""} ${idColumn} DESC LIMIT ?`;
     values.push(filters.limit + 1);
     const result = await this.db.prepare(sql).bind(...values).all<Row>();
     const rows = result.results.slice(0, filters.limit);

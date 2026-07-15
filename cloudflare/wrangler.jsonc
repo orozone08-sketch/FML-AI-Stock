@@ -12,6 +12,7 @@
     "run_worker_first": [
       "/", "/login*", "/admin/*", "/register", "/logout", "/company/*", "/dashboard/*",
       "/masters/*", "/users/*", "/transactions/*", "/finance/*", "/reports/*", "/customers/*",
+      "/files/*",
       "/api/*", "/healthz", "/readyz"
     ]
   },

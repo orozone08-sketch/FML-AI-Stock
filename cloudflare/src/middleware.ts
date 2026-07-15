@@ -11,6 +11,8 @@ export const requestContext: MiddlewareHandler<{ Bindings: Env; Variables: AppVa
   c.header("X-Frame-Options", "DENY");
   c.header("Referrer-Policy", "strict-origin-when-cross-origin");
   c.header("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  c.header("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload");
+  c.header("Cache-Control", "private, no-store, max-age=0");
   c.header("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
 };
 export const requireAuth: MiddlewareHandler<{ Bindings: Env; Variables: AppVariables }> = async (c, next) => {

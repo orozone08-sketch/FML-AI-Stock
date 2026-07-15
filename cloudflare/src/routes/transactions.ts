@@ -157,7 +157,7 @@ function lineEditor(items: Row[], existing: Row[] = []): string {
   const rows = source
     .map(
       (line) =>
-        `<tr><td>${select("item_id[]", items, line.item_id)}</td><td><input name="quantity[]" value="${line.quantity_milliunits ? Number(line.quantity_milliunits) / 1000 : ""}" required></td><td><input name="rate[]" value="${line.rate_ten_thousandths ? Number(line.rate_ten_thousandths) / 10000 : "0"}"></td><td><input name="gst_percent[]" value="${line.gst_basis_points ? Number(line.gst_basis_points) / 100 : "0"}"></td><td><input name="line_remarks[]"></td></tr>`,
+        `<tr data-line-row><td>${select("item_id[]", items, line.item_id)}</td><td><input name="quantity[]" value="${line.quantity_milliunits ? Number(line.quantity_milliunits) / 1000 : ""}" required></td><td><input name="rate[]" value="${line.rate_ten_thousandths ? Number(line.rate_ten_thousandths) / 10000 : "0"}"></td><td><input name="gst_percent[]" value="${line.gst_basis_points ? Number(line.gst_basis_points) / 100 : "0"}"></td><td><input name="line_remarks[]"><button type="button" data-remove-line aria-label="Remove line">Remove</button></td></tr>`,
     )
     .join("");
   return `<table id="lines"><thead><tr><th>Item</th><th>Quantity</th><th>Rate</th><th>GST %</th><th>Remarks</th></tr></thead><tbody>${rows}</tbody></table><button type="button" data-add-line>Add line</button>`;
@@ -447,6 +447,16 @@ transactions.post("/opening/:section", async (c) => {
       remarks: String(body.remarks ?? ""),
       lines: lines(body),
     };
+  if (section === "receivable" || section === "payable") {
+    payload.partyId = Number(body.party_id ?? body[section === "receivable" ? "customer_id" : "supplier_id"]);
+    payload.amount = String(body.amount ?? body.pending_amount ?? "");
+    payload.dueDate = body.due_date ? String(body.due_date) : undefined;
+    payload.transactionType = String(body.transaction_type ?? body[section === "receivable" ? "sale_type" : "purchase_type"] ?? "GST");
+  } else if (section === "advance-received" || section === "advance-paid") {
+    payload.partyId = Number(body.party_id ?? body[section === "advance-received" ? "customer_id" : "supplier_id"]);
+    payload.amount = String(body.amount ?? "");
+    payload.mode = String(body.mode ?? "CASH");
+  }
   const type = {
     stock: "opening.create",
     "pending-stock": "opening_pending.create",
@@ -533,24 +543,33 @@ for (const [openingKind, openingSpec] of Object.entries(openingKinds)) {
 
   transactions.post(`/opening/${openingKind}/:id/edit`, async (c) => {
     const body = (await c.req.parseBody()) as Row;
+    const existing = await c.env.DB.prepare(`SELECT * FROM ${openingSpec.table} WHERE id=?`).bind(Number(c.req.param("id"))).first<Row>();
+    if (!existing) return c.notFound();
     const payload: Row = {
       id: Number(c.req.param("id")),
-      companyId: Number(body.company_id),
+      companyId: Number(body.company_id ?? existing.company_id),
       referenceNumber: String(body.reference_number ?? ""),
       date: String(body.document_date ?? ""),
       amount: String(body.amount ?? ""),
       remarks: String(body.remarks ?? ""),
       lines: lines(body),
-      stockBookId: Number(body.stock_book_id),
+      stockBookId: Number(body.stock_book_id ?? existing.stock_book_id),
+      partyId: Number(body.party_id ?? body.customer_id ?? body.supplier_id ?? existing.customer_id ?? existing.supplier_id),
+      mode: String(body.mode ?? existing.mode ?? "CASH"),
+      transactionType: String(body.transaction_type ?? existing.transaction_type ?? "GST"),
     };
-    const result = await command(c, `${openingSpec.entity}.edit`, payload);
+    const entity = openingKind === "advance" ? (existing.payment_type === "OPENING_ADVANCE_PAID" ? "opening_advance_paid" : "opening_advance_received") : openingSpec.entity;
+    const result = await command(c, `${entity}.edit`, payload);
     return result.ok
       ? c.redirect("/transactions/opening", 303)
       : c.json(result.result, result.status as 400);
   });
 
   transactions.post(`/opening/${openingKind}/:id/delete`, async (c) => {
-    const result = await command(c, `${openingSpec.entity}.delete`, {
+    const existing = openingKind === "advance" ? await c.env.DB.prepare("SELECT payment_type FROM payments WHERE id=?").bind(Number(c.req.param("id"))).first<Row>() : null;
+    const entity = openingKind === "advance" ? (existing?.payment_type === "OPENING_ADVANCE_PAID" ? "opening_advance_paid" : "opening_advance_received") : openingSpec.entity;
+    const commandType = openingKind === "stock" ? "opening.void" : `${entity}.delete`;
+    const result = await command(c, commandType, {
       id: Number(c.req.param("id")),
       companyId: c.get("user")!.activeCompanyId,
     });

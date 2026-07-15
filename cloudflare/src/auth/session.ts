@@ -91,6 +91,8 @@ export async function loadUser(c: Context<{ Bindings: Env; Variables: AppVariabl
 export async function verifyCsrf(c: Context<{ Bindings: Env; Variables: AppVariables }>): Promise<boolean> {
   const user = c.get("user");
   if (!user) return false;
+  const headerToken = c.req.header("X-CSRF-Token");
+  if (headerToken) return headerToken === user.csrfToken;
   const contentType = c.req.header("Content-Type") ?? "";
   let supplied: unknown;
   if (contentType.includes("application/json")) {
