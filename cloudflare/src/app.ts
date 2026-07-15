@@ -18,7 +18,7 @@ const app = new Hono<{ Bindings: Env; Variables: AppVariables }>({ strict: false
 
 app.use("*", requestContext);
 
-app.get("/healthz", (c) => c.json({ ok: true, service: "fastockflow", environment: c.env.APP_ENV, commit: globalThis.FASTOCKFLOW_COMMIT ?? "development" }));
+app.get("/healthz", (c) => c.json({ ok: true, service: "fastockflow", environment: c.env.APP_ENV, commit: c.env.DEPLOY_COMMIT ?? "development" }));
 app.get("/readyz", async (c) => {
   try {
     const schema = await c.env.DB.prepare("SELECT name FROM d1_migrations ORDER BY id DESC LIMIT 1").first<{name:string}>().catch(() => null);
@@ -56,5 +56,4 @@ app.onError((error, c) => {
   return c.html(layout("Server Error", `<p>The request could not be completed. Reference: ${escapeHtml(c.get("requestId"))}</p>`, c.get("user")), 500);
 });
 
-declare global { var FASTOCKFLOW_COMMIT: string | undefined }
 export default app;

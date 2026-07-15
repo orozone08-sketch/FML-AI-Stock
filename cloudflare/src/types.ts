@@ -5,6 +5,7 @@ export interface Env {
   ASSETS: Fetcher;
   APP_ENV: string;
   SITE_URL: string;
+  DEPLOY_COMMIT?: string;
   SESSION_HMAC_KEY: string;
   CSRF_HMAC_KEY: string;
   REGISTRATION_INVITE_KEY: string;

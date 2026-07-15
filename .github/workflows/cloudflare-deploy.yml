@@ -58,13 +58,14 @@ jobs:
       - name: Apply immutable migrations
         run: npx wrangler d1 migrations apply fastockflow-db --remote
       - name: Deploy tested Worker
-        run: npx wrangler deploy
+        run: npx wrangler deploy --var "DEPLOY_COMMIT:${{ github.event.workflow_run.head_sha }}"
       - name: Public health and readiness checks
         shell: bash
         run: |
           set -euo pipefail
           test -n "$HEALTHCHECK_URL"
-          curl --fail --retry 5 --retry-all-errors --max-time 15 "$HEALTHCHECK_URL/healthz"
+          curl --fail --retry 5 --retry-all-errors --max-time 15 "$HEALTHCHECK_URL/healthz" | tee /tmp/fastockflow-health.json
+          node -e "const r=JSON.parse(require('node:fs').readFileSync('/tmp/fastockflow-health.json','utf8')); if(r.ok!==true||r.commit!=='${{ github.event.workflow_run.head_sha }}') process.exit(1)"
           curl --fail --retry 5 --retry-all-errors --max-time 15 "$HEALTHCHECK_URL/readyz"
       - name: Authenticated post-deploy acceptance checks
         shell: bash
