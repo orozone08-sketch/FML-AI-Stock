@@ -181,10 +181,16 @@ jobs:
             --cookie-jar "$cookie_jar" \
             --output /tmp/fastockflow-login-form.body \
             "$HEALTHCHECK_URL/login/company/$SMOKE_COMPANY_ID"
-          public_csrf="$(sed -n 's/.*name="csrf_token" value="\([^"]*\)".*/\1/p' /tmp/fastockflow-login-form.body | head -n 1)"
+          public_csrf="$(node -e '
+            const html=require("node:fs").readFileSync("/tmp/fastockflow-login-form.body","utf8");
+            const match=html.match(/name="csrf_token"\s+value="([^"]+)"/);
+            if(!match) process.exit(1);
+            process.stdout.write(match[1]);
+          ')"
           test -n "$public_csrf"
 
           login_status="$(curl --silent --show-error --retry 5 --retry-all-errors --max-time 15 \
+            --cookie "$cookie_jar" \
             --cookie-jar "$cookie_jar" \
             --dump-header /tmp/fastockflow-login.headers \
             --output /tmp/fastockflow-login.body \
