@@ -4,6 +4,7 @@ import { createPbkdf2Hash, hmac, sha256, verifyWerkzeugPbkdf2 } from "../securit
 import { createSession, clearSessionHeaders, revokeSession } from "../auth/session";
 import { authLayout, escapeHtml, formField } from "../views/html";
 import { nowIso } from "../db/helpers";
+import { assetPaths } from "../generated/assets";
 
 const auth = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
@@ -17,9 +18,9 @@ async function companies(db: D1Database): Promise<Array<Record<string, unknown>>
 
 function companyLogo(row: Record<string, unknown>): string {
   const text = `${row.code ?? ""} ${row.name ?? ""}`.toLowerCase();
-  if (text.includes("aditya")) return "/static/img/aditya-logo.jpg";
-  if (text.includes("first")) return "/static/img/firsttech-logo.jpg";
-  return "/static/img/fastockflow-logo-cropped.png";
+  if (text.includes("aditya")) return assetPaths.adityaLogo;
+  if (text.includes("first")) return assetPaths.firsttechLogo;
+  return assetPaths.logo;
 }
 
 function loginPage(rows: Array<Record<string, unknown>>, message = "", selected = "", email = ""): string {

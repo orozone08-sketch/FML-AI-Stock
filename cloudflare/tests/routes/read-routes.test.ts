@@ -2,6 +2,7 @@ import { describe,expect,it } from "vitest";
 import reports from "../../src/routes/reports";
 import customers from "../../src/routes/customers";
 import financeRead from "../../src/routes/finance-read";
+import files from "../../src/routes/files";
 
 function contracts(router:{routes:Array<{method:string;path:string}>}) {
   return router.routes.map(route=>`${route.method} ${route.path}`);
@@ -23,5 +24,9 @@ describe("read route contracts",()=>{
     expect(contracts(financeRead)).toEqual(expect.arrayContaining([
       "GET /outstanding","GET /outstanding/customer/:companyId/:customerId","GET /outstanding/supplier/:companyId/:supplierId",
     ]));
+  });
+  it("checks R2 availability without colliding with file-id downloads",()=>{
+    expect(contracts(files)).toEqual(expect.arrayContaining(["GET /status","GET /:id"]));
+    expect(contracts(files).findIndex(v=>v==="GET /status")).toBeLessThan(contracts(files).findIndex(v=>v==="GET /:id"));
   });
 });

@@ -53,6 +53,7 @@ Required GitHub environment `cloudflare-production` secrets:
 - `CLOUDFLARE_API_TOKEN` with least privilege for this Worker, D1, R2 and Durable Object deployment
 - `FASTOCKFLOW_D1_DATABASE_ID`
 - `FASTOCKFLOW_WORKER_URL`
+- `FASTOCKFLOW_SMOKE_LOGIN_ID`, `FASTOCKFLOW_SMOKE_PASSWORD`, and `FASTOCKFLOW_SMOKE_COMPANY_ID` for a dedicated active, company-bound production smoke user with `reports:view`. The deploy workflow logs in, reads the dashboard and current-stock report, verifies R2 availability without modifying business data, and revokes its session.
 
 The workflow verifies the tested commit and resource identity, records a D1 Time Travel bookmark, applies migrations, deploys, and checks `/healthz` and `/readyz`. It does not import production data or change DNS.
 
@@ -74,6 +75,16 @@ Do not seed remote D1. Do not use `REPLACE`, silent upserts, or rerun a partiall
 ## Cutover and observation
 
 Cutover requires zero unexplained reconciliation differences and explicit business approval. Import the final delta while old writes remain frozen, re-run reconciliation and authenticated acceptance, then change only the approved route/DNS. Keep VPS/MySQL intact and read-only. Monitor Worker errors/CPU, D1 rows read/written/storage, coordinator queue latency, idempotency conflicts, login failures, reconciliation alerts, and R2 operations. Alert at 50%, 70%, and 85% of free-tier daily limits.
+
+## Scheduled maintenance
+
+The production Worker runs `17 * * * *` (minute 17 of every hour, UTC). Each invocation has hard application-level limits: at most 100 expired sessions, 100 login attempts older than 30 days, 100 expired idempotency keys, 20 abandoned R2 records, and 20 reconciliation keys. Repeated hourly runs drain backlogs without a full-table delete or an unbounded ledger aggregation.
+
+R2 records left in `PENDING` or `ORPHANED` for more than 24 hours are deleted from R2 first and then removed from D1. A failed D1 metadata delete is safe: the next run repeats the idempotent R2 delete. `READY` and `SOFT_DELETED` records are never handled by this orphan job.
+
+Inventory reconciliation alternates between two persisted cursor phases. The balance phase detects stale read-model rows, including balances whose ledger is now empty. The ledger phase detects ledger keys with a missing `inventory_balances` row. Each key uses the indexed `(company_id, stock_book_id, item_id, entry_date, id)` ledger path. Differences create one unresolved `INVENTORY_RECONCILIATION` critical alert per company/book/item; matching data resolves an existing alert. The job reports counts only and never repairs accounting values automatically.
+
+Check recent cron results in Workers observability for the structured `scheduled-maintenance` event. Investigate any non-zero `reconciliation.mismatches`; repair through an approved accounting correction or restore procedure, never by manually overwriting the read model without reconciling the underlying ledger. If a backlog persists, keep the hourly limit and allow later invocations to drain it rather than increasing limits during peak traffic.
 
 ## Rollback boundaries
 

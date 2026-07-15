@@ -25,6 +25,7 @@ const upload=async (c:Context<{Bindings:Env;Variables:AppVariables}>)=>{
 };
 files.post("/",upload);
 files.post("/upload",upload);
+files.get("/status",async c=>{await c.env.FILES.list({limit:1});return c.json({ok:true,storage:true})});
 files.get("/:id",async c=>{const user=c.get("user")!,row=await c.env.DB.prepare("SELECT * FROM r2_objects WHERE id=? AND lifecycle_state='READY'").bind(Number(c.req.param("id"))).first<Row>();if(!row)return c.notFound();if(!allowed(user,Number(row.company_id)))return c.text("Forbidden",403);const object=await c.env.FILES.get(String(row.object_key));if(!object)return c.notFound();return new Response(object.body,{headers:{"Content-Type":String(row.content_type),"Content-Length":String(row.size_bytes),"ETag":object.httpEtag,"Cache-Control":"private, no-store"}})});
 files.delete("/:id",async c=>{const user=c.get("user")!,row=await c.env.DB.prepare("SELECT * FROM r2_objects WHERE id=? AND lifecycle_state='READY'").bind(Number(c.req.param("id"))).first<Row>();if(!row)return c.notFound();if(!allowed(user,Number(row.company_id))||(user.role!=="ADMIN"&&Number(row.owner_user_id)!==user.id))return c.text("Forbidden",403);await c.env.FILES.delete(String(row.object_key));await c.env.DB.prepare("UPDATE r2_objects SET lifecycle_state='SOFT_DELETED',deleted_at=? WHERE id=?").bind(new Date().toISOString(),Number(row.id)).run();return c.body(null,204)});
 export default files;
