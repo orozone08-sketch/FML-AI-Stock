@@ -32,8 +32,8 @@ jobs:
       FASTOCKFLOW_SMOKE_LOGIN_ID: ${{ secrets.FASTOCKFLOW_SMOKE_LOGIN_ID }}
       FASTOCKFLOW_SMOKE_PASSWORD: ${{ secrets.FASTOCKFLOW_SMOKE_PASSWORD }}
       FASTOCKFLOW_SMOKE_COMPANY_ID: ${{ secrets.FASTOCKFLOW_SMOKE_COMPANY_ID }}
-      FASTOCKFLOW_ACCEPTANCE_RESULT_FILE: ${{ runner.temp }}/fastockflow-live-acceptance.json
-      FASTOCKFLOW_ACCEPTANCE_PREFIX_FILE: ${{ runner.temp }}/fastockflow-live-acceptance-prefix.txt
+      FASTOCKFLOW_ACCEPTANCE_RESULT_FILE: /tmp/fastockflow-live-acceptance.json
+      FASTOCKFLOW_ACCEPTANCE_PREFIX_FILE: /tmp/fastockflow-live-acceptance-prefix.txt
       FASTOCKFLOW_ACCEPTANCE_REQUIRE_FULL: '1'
 
     steps:
