@@ -124,10 +124,11 @@ jobs:
             --data-urlencode "password=$SMOKE_PASSWORD" \
             --data-urlencode "company_id=$SMOKE_COMPANY_ID" \
             "$HEALTHCHECK_URL/login")"
+          login_location="$(awk 'tolower($1) == "location:" { print $2 }' /tmp/fastockflow-login.headers | tr -d '\r' | tail -n 1)"
           echo "Login status: $login_status"
-          echo "Login redirect: $(awk 'tolower($1) == "location:" { print $2 }' /tmp/fastockflow-login.headers | tr -d '\r' | tail -n 1)"
+          echo "Login redirect: $login_location"
           test "$login_status" = "303"
-          grep -Eqi '^location: /dashboard/?\r?$' /tmp/fastockflow-login.headers
+          test "$login_location" = "/dashboard/" || test "$login_location" = "/dashboard"
           grep -q 'fastock_session' "$cookie_jar"
           grep -q 'fastock_csrf' "$cookie_jar"
 
