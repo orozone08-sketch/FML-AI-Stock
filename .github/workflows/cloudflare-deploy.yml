@@ -63,9 +63,41 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$HEALTHCHECK_URL"
-          curl --fail --retry 5 --retry-all-errors --max-time 15 "$HEALTHCHECK_URL/healthz" | tee /tmp/fastockflow-health.json
-          node -e "const r=JSON.parse(require('node:fs').readFileSync('/tmp/fastockflow-health.json','utf8')); if(r.ok!==true||r.commit!=='${{ github.event.workflow_run.head_sha }}') process.exit(1)"
-          curl --fail --retry 5 --retry-all-errors --max-time 15 "$HEALTHCHECK_URL/readyz"
+          expected_commit="${{ github.event.workflow_run.head_sha }}"
+          deployed=false
+
+          # Workers can briefly serve the previous version while a deployment
+          # propagates. Poll until this exact validated commit reaches the edge.
+          for attempt in $(seq 1 24); do
+            if curl --silent --show-error --fail --max-time 15 \
+                "$HEALTHCHECK_URL/healthz" \
+                --output /tmp/fastockflow-health.json && \
+              EXPECTED_COMMIT="$expected_commit" node -e '
+                try {
+                  const r = JSON.parse(require("node:fs").readFileSync("/tmp/fastockflow-health.json", "utf8"));
+                  process.exit(r.ok === true && r.commit === process.env.EXPECTED_COMMIT ? 0 : 1);
+                } catch {
+                  process.exit(1);
+                }
+              '; then
+              deployed=true
+              break
+            fi
+
+            if [ "$attempt" -lt 24 ]; then
+              sleep 5
+            fi
+          done
+
+          if [ "$deployed" != true ]; then
+            echo "Expected deployed commit $expected_commit, but health check never matched."
+            test ! -f /tmp/fastockflow-health.json || cat /tmp/fastockflow-health.json
+            exit 1
+          fi
+
+          cat /tmp/fastockflow-health.json
+          curl --silent --show-error --fail --retry 5 --retry-all-errors \
+            --max-time 15 "$HEALTHCHECK_URL/readyz"
       - name: Authenticated post-deploy acceptance checks
         shell: bash
         run: |
