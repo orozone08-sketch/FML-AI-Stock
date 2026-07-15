@@ -12,7 +12,13 @@ class Statement {
 class FakeDb {
   batches: Statement[][] = [];
   replay: unknown = null;
-  prepare(query: string) { return new Statement(query, query.startsWith("SELECT request_digest") ? this.replay : null); }
+  prepare(query: string) {
+    const first = query.startsWith("SELECT request_digest") ? this.replay
+      : query.includes("FROM items") ? { count: 1 }
+      : query.includes("FROM companies") || query.includes("FROM stock_books") ? { id: 1 }
+      : null;
+    return new Statement(query, first);
+  }
   batch<T>(statements: Statement[]) {
     this.batches.push(statements);
     if (statements.every((row) => row.query.startsWith("SELECT COALESCE(MAX"))) return Promise.resolve(statements.map(() => ({ results: [{ id: 1 }] })) as T);
@@ -38,6 +44,9 @@ describe("AccountingHandler atomic command execution", () => {
     expect(combined).toContain("INSERT INTO stock_ledger_entries");
     expect(combined).toContain("INSERT INTO inventory_balances");
     expect(combined).toContain("INSERT INTO audit_logs");
+    const audit = db.batches.at(-1)!.find((statement) => statement.query.startsWith("INSERT INTO audit_logs"))!;
+    expect(audit.query).toContain("company_id");
+    expect(audit.params).toContain(1);
     expect(combined).toContain("SET status='COMMITTED'");
   });
 
@@ -52,5 +61,14 @@ describe("AccountingHandler atomic command execution", () => {
     const db = new FakeDb();
     db.replay = { request_digest: "other", status: "COMMITTED", result_type: "OpeningStock", result_id: 9 };
     await expect(new AccountingHandler(db as unknown as D1Database).execute(opening)).rejects.toThrow(/different request/);
+  });
+
+  it("rejects an edit or void when the document is outside the active company", async () => {
+    const db = new FakeDb();
+    await expect(new AccountingHandler(db as unknown as D1Database).execute({
+      type: "sale.void", userId: 1, companyId: 1, idempotencyKey: "scope", requestDigest: "scope-digest",
+      payload: { id: 99, companyId: 1 },
+    })).rejects.toThrow(/selected company/);
+    expect(db.batches).toHaveLength(0);
   });
 });

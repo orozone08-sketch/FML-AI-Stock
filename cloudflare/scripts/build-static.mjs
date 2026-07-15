@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, extname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -10,25 +10,34 @@ const immutableOutput = join(output, 'immutable');
 await rm(output, { recursive: true, force: true });
 await mkdir(output, { recursive: true });
 const manifest = {};
+const textExtensions = new Set(['.css', '.html', '.js', '.json', '.map', '.svg', '.txt', '.xml']);
+
+function canonicalBytes(path, bytes) {
+  return textExtensions.has(extname(path).toLowerCase())
+    ? Buffer.from(bytes.toString('utf8').replace(/\r\n?/g, '\n'))
+    : bytes;
+}
 
 async function walk(directory) {
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
+  const entries = await readdir(directory, { withFileTypes: true });
+  entries.sort((left, right) => left.name.localeCompare(right.name, 'en'));
+  for (const entry of entries) {
     const path = join(directory, entry.name);
     if (entry.isDirectory()) await walk(path);
     else {
       const logical = relative(source, path).replaceAll('\\', '/');
-      const bytes = await readFile(path);
+      const bytes = canonicalBytes(path, await readFile(path));
       const hash = createHash('sha256').update(bytes).digest('hex').slice(0, 12);
       const extension = extname(entry.name);
       const stem = entry.name.slice(0, -extension.length || undefined);
       const targetName = `${stem}.${hash}${extension}`;
       const target = join(immutableOutput, dirname(logical), targetName);
       await mkdir(dirname(target), { recursive: true });
-      await cp(path, target);
+      await writeFile(target, bytes);
       const logicalTarget = join(output, logical);
       await mkdir(dirname(logicalTarget), { recursive: true });
-      await cp(path, logicalTarget);
-      if (logical === 'css/app.css' || logical === 'js/app.js') await cp(path, join(output, entry.name));
+      await writeFile(logicalTarget, bytes);
+      if (logical === 'css/app.css' || logical === 'js/app.js') await writeFile(join(output, entry.name), bytes);
       manifest[logical] = `/static/immutable/${join(dirname(logical), targetName).replaceAll('\\', '/')}`;
     }
   }

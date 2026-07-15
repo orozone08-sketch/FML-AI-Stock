@@ -1,9 +1,52 @@
-import { allocateFifo, allocatePayment, assertDocumentPaymentInvariant, assertPaymentInvariant, gstRate, lineTotals, money, paymentStatus, quantity, rate, type Money, type Outstanding } from "../domain";
-import type { AccountingEnvelope, CommandResult, LineInput, OpeningCommand, PaymentCommand, PurchaseCommand, SaleCommand, TransferCommand, VoidCommand } from "./types";
+import {
+  allocateFifo,
+  allocatePayment,
+  assertDocumentPaymentInvariant,
+  assertPaymentInvariant,
+  gstRate,
+  lineTotals,
+  money,
+  paymentStatus,
+  quantity,
+  rate,
+  type Money,
+  type Outstanding,
+} from "../domain";
+import type {
+  AccountingEnvelope,
+  CommandResult,
+  LineInput,
+  OpeningCommand,
+  OpeningPendingCommand,
+  PaymentCommand,
+  PurchaseCommand,
+  SaleCommand,
+  TransferCommand,
+  VoidCommand,
+} from "./types";
 import { dbInt, nextIds, prepared, sql, type SqlMutation } from "./sql";
 import { planPurchaseEdit, planSaleEdit } from "./fifo-edit-cascade";
-import { planCreateOpeningBalance, planDeleteOpeningBalance, planUpdateOpeningBalance, type OpeningBalanceCommand, type OpeningBalanceKind } from "./opening-balances";
-import { planDeletePayment, planReconstructPayment } from "./payment-reconstruction";
+import {
+  planCreateOpeningBalance,
+  planDeleteOpeningBalance,
+  planUpdateOpeningBalance,
+  type OpeningBalanceCommand,
+  type OpeningBalanceKind,
+} from "./opening-balances";
+import {
+  planDeletePayment,
+  planReconstructPayment,
+} from "./payment-reconstruction";
+import { planTransferEdit } from "./transfer-edit";
+import { planCreateOpeningPending } from "./opening-pending";
+import {
+  assertDocumentLineCount,
+  assertOpeningStockContext,
+  assertPaymentContext,
+  assertPurchaseContext,
+  assertSaleContext,
+  assertTransferContext,
+} from "./domain-validation";
 
 type Row = Record<string, number | string | null>;
 const now = () => new Date().toISOString();
@@ -13,130 +56,1810 @@ export class AccountingHandler {
   constructor(private readonly db: D1Database) {}
 
   async execute(envelope: AccountingEnvelope): Promise<CommandResult> {
-    const existing = await this.db.prepare("SELECT request_digest,status,result_type,result_id FROM idempotency_keys WHERE user_id=? AND action=? AND idempotency_key=?").bind(envelope.userId, envelope.type, envelope.idempotencyKey).first<Row>();
+    const existing = await this.db
+      .prepare(
+        "SELECT request_digest,status,result_type,result_id FROM idempotency_keys WHERE user_id=? AND action=? AND idempotency_key=?",
+      )
+      .bind(envelope.userId, envelope.type, envelope.idempotencyKey)
+      .first<Row>();
     if (existing) {
-      if (existing.request_digest !== envelope.requestDigest) throw new Error("Idempotency key was reused with a different request.");
-      if (existing.status === "COMMITTED") return { type: String(existing.result_type), id: Number(existing.result_id), status: this.statusFor(envelope.type), replayed: true };
+      if (existing.request_digest !== envelope.requestDigest)
+        throw new Error("Idempotency key was reused with a different request.");
+      if (existing.status === "COMMITTED")
+        return {
+          type: String(existing.result_type),
+          id: Number(existing.result_id),
+          status: this.statusFor(envelope.type),
+          replayed: true,
+        };
       throw new Error("This accounting command is already in progress.");
     }
-    if (envelope.companyId !== null && Number((envelope.payload as { companyId?: number }).companyId) !== envelope.companyId) throw new Error("Command company scope mismatch.");
-    if (envelope.type.endsWith(".create")) return this.create(envelope);
-    if (envelope.type.endsWith(".edit")) return this.edit(envelope);
-    if (envelope.type.endsWith(".void") || envelope.type.endsWith(".delete")) return this.remove(envelope);
+    if (
+      envelope.companyId !== null &&
+      Number((envelope.payload as { companyId?: number }).companyId) !==
+        envelope.companyId
+    )
+      throw new Error("Command company scope mismatch.");
+    if (!envelope.type.endsWith(".create"))
+      await this.assertRecordScope(envelope);
+    if (envelope.type.endsWith(".create")) return await this.create(envelope);
+    if (envelope.type.endsWith(".edit")) return await this.edit(envelope);
+    if (envelope.type.endsWith(".void") || envelope.type.endsWith(".delete"))
+      return await this.remove(envelope);
     throw new Error(`Unsupported accounting command: ${envelope.type}`);
   }
 
-  private statusFor(type: string): CommandResult["status"] { return type.endsWith(".create") ? "created" : type.endsWith(".delete") ? "deleted" : type.endsWith(".void") ? "voided" : "updated"; }
+  private statusFor(type: string): CommandResult["status"] {
+    return type.endsWith(".create")
+      ? "created"
+      : type.endsWith(".delete")
+        ? "deleted"
+        : type.endsWith(".void")
+          ? "voided"
+          : "updated";
+  }
 
-  private async commit(envelope: AccountingEnvelope, entity: string, id: number, status: CommandResult["status"], mutations: SqlMutation[], before: unknown = null, after: unknown = envelope.payload) {
+  private async assertRecordScope(envelope: AccountingEnvelope): Promise<void> {
+    if (envelope.companyId === null) return;
+    const id = Number((envelope.payload as { id?: number }).id);
+    if (!Number.isInteger(id) || id <= 0)
+      throw new Error("Document ID is required.");
+    const prefix = envelope.type.split(".", 1)[0];
+    const scope: Record<string, readonly [string, string]> = {
+      purchase: ["purchases", "company_id"],
+      sale: ["sales", "company_id"],
+      transfer: ["inter_company_transfers", "from_company_id"],
+      payment: ["payments", "company_id"],
+      opening: ["opening_stocks", "company_id"],
+      opening_receivable: ["receivables", "company_id"],
+      opening_payable: ["payables", "company_id"],
+      opening_advance_received: ["payments", "company_id"],
+      opening_advance_paid: ["payments", "company_id"],
+    };
+    const target = scope[prefix ?? ""];
+    if (!target) return;
+    const row = await this.db
+      .prepare(`SELECT id FROM ${target[0]} WHERE id=? AND ${target[1]}=?`)
+      .bind(id, envelope.companyId)
+      .first<Row>();
+    if (!row)
+      throw new Error("Document was not found in the selected company.");
+  }
+
+  private async commit(
+    envelope: AccountingEnvelope,
+    entity: string,
+    id: number,
+    status: CommandResult["status"],
+    mutations: SqlMutation[],
+    before: unknown = null,
+    after: unknown = envelope.payload,
+  ) {
     const t = now();
     const ids = await nextIds(this.db, ["idempotency_keys", "audit_logs"]);
-    mutations.unshift(sql("INSERT INTO idempotency_keys(id,user_id,action,idempotency_key,request_digest,status,result_type,result_id,response_status,created_at,expires_at) VALUES(?,?,?,?,?,'PENDING',?,?,200,?,?)", ids.idempotency_keys, envelope.userId, envelope.type, envelope.idempotencyKey, envelope.requestDigest, entity, id, t, expiry()));
-    mutations.push(sql("INSERT INTO audit_logs(id,user_id,action,entity_type,entity_id,reference,before_values,after_values,created_at) VALUES(?,?,?,?,?,?,?,?,?)", ids.audit_logs, envelope.userId, status, entity, String(id), null, before === null ? null : JSON.stringify(before), after === null ? null : JSON.stringify(after), t));
-    mutations.push(sql("UPDATE idempotency_keys SET status='COMMITTED' WHERE user_id=? AND action=? AND idempotency_key=?", envelope.userId, envelope.type, envelope.idempotencyKey));
+    mutations.unshift(
+      sql(
+        "INSERT INTO idempotency_keys(id,user_id,action,idempotency_key,request_digest,status,result_type,result_id,response_status,created_at,expires_at) VALUES(?,?,?,?,?,'PENDING',?,?,200,?,?)",
+        ids.idempotency_keys,
+        envelope.userId,
+        envelope.type,
+        envelope.idempotencyKey,
+        envelope.requestDigest,
+        entity,
+        id,
+        t,
+        expiry(),
+      ),
+    );
+    mutations.push(
+      sql(
+        "INSERT INTO audit_logs(id,user_id,company_id,action,entity_type,entity_id,reference,before_values,after_values,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+        ids.audit_logs,
+        envelope.userId,
+        envelope.companyId,
+        status,
+        entity,
+        String(id),
+        null,
+        before === null ? null : JSON.stringify(before),
+        after === null ? null : JSON.stringify(after),
+        t,
+      ),
+    );
+    mutations.push(
+      sql(
+        "UPDATE idempotency_keys SET status='COMMITTED' WHERE user_id=? AND action=? AND idempotency_key=?",
+        envelope.userId,
+        envelope.type,
+        envelope.idempotencyKey,
+      ),
+    );
     await this.db.batch(prepared(this.db, mutations));
     return { type: entity, id, status };
   }
 
   private async create(envelope: AccountingEnvelope): Promise<CommandResult> {
-    if (envelope.type === "opening.create") return this.createOpening(envelope, envelope.payload as OpeningCommand);
-    if (envelope.type === "purchase.create") return this.createPurchase(envelope, envelope.payload as PurchaseCommand);
-    if (envelope.type === "sale.create") return this.createSale(envelope, envelope.payload as SaleCommand);
-    if (envelope.type === "payment.create") return this.createPayment(envelope, envelope.payload as PaymentCommand);
-    if (envelope.type === "transfer.create") return this.createTransferExact(envelope, envelope.payload as TransferCommand);
-    if (this.openingBalanceKind(envelope.type)) { const p=await planCreateOpeningBalance(this.db,this.openingBalance(envelope),envelope.userId); return this.commit(envelope,p.type,p.id,p.status,p.mutations,p.before); }
+    if (envelope.type === "opening.create")
+      return await this.createOpening(envelope, envelope.payload as OpeningCommand);
+    if (envelope.type === "purchase.create")
+      return await this.createPurchase(envelope, envelope.payload as PurchaseCommand);
+    if (envelope.type === "sale.create")
+      return await this.createSale(envelope, envelope.payload as SaleCommand);
+    if (envelope.type === "payment.create")
+      return await this.createPayment(envelope, envelope.payload as PaymentCommand);
+    if (envelope.type === "transfer.create")
+      return await this.createTransferExact(
+        envelope,
+        envelope.payload as TransferCommand,
+      );
+    if (envelope.type === "opening_pending.create") {
+      const p = await planCreateOpeningPending(
+        this.db,
+        envelope.payload as OpeningPendingCommand,
+        envelope.userId,
+      );
+      return this.commit(
+        envelope,
+        p.type,
+        p.id,
+        "created",
+        p.mutations,
+        p.before,
+      );
+    }
+    if (this.openingBalanceKind(envelope.type)) {
+      const p = await planCreateOpeningBalance(
+        this.db,
+        this.openingBalance(envelope),
+        envelope.userId,
+      );
+      return this.commit(
+        envelope,
+        p.type,
+        p.id,
+        p.status,
+        p.mutations,
+        p.before,
+      );
+    }
     throw new Error(`Unsupported create command: ${envelope.type}`);
   }
 
   private parseLines(lines: LineInput[], taxable: boolean) {
-    if (!lines.length) throw new Error("At least one item line is required.");
+    assertDocumentLineCount(lines.length);
     return lines.map((line) => {
-      const q = quantity(line.quantity); if (q === 0n) throw new Error("Quantity cannot be zero.");
-      const r = rate(line.rate); if (r < 0n) throw new Error("Rate cannot be negative.");
-      return { ...line, q, r, totals: lineTotals(q, r, gstRate(line.gstPercent ?? 0), taxable) };
+      const q = quantity(line.quantity);
+      if (q === 0n) throw new Error("Quantity cannot be zero.");
+      const r = rate(line.rate);
+      if (r < 0n) throw new Error("Rate cannot be negative.");
+      return {
+        ...line,
+        q,
+        r,
+        totals: lineTotals(q, r, gstRate(line.gstPercent ?? 0), taxable),
+      };
     });
   }
 
-  private async createOpening(envelope: AccountingEnvelope, data: OpeningCommand) {
+  private assertUniqueItemLines(lines: readonly { itemId: number }[], document: string) {
+    if (new Set(lines.map((line) => line.itemId)).size !== lines.length)
+      throw new Error(`${document} may contain each item only once.`);
+  }
+
+  private async createOpening(
+    envelope: AccountingEnvelope,
+    data: OpeningCommand,
+  ) {
     const lines = this.parseLines(data.lines, false);
-    const ids = await nextIds(this.db, ["opening_stocks","opening_stock_lines","fifo_layers","stock_ledger_entries"]); const id = ids.opening_stocks; const t=now(); const m:SqlMutation[]=[];
-    m.push(sql("INSERT INTO opening_stocks(id,company_id,stock_book_id,reference_number,opening_date,remarks,created_at,updated_at,created_by_id) VALUES(?,?,?,?,?,?,?,?,?)",id,data.companyId,data.stockBookId,data.referenceNumber,data.date,data.remarks??null,t,t,envelope.userId));
-    lines.forEach((line,i)=>{const lineId=ids.opening_stock_lines+i; const value=dbInt(line.totals.subtotal),absoluteValue=Math.abs(value); m.push(sql("INSERT INTO opening_stock_lines(id,opening_stock_id,item_id,quantity_milliunits,rate_ten_thousandths,value_paise,remarks) VALUES(?,?,?,?,?,?,?)",lineId,id,line.itemId,dbInt(line.q),dbInt(line.r),value,line.remarks??null)); if(line.q>0n)m.push(this.layer(ids.fifo_layers+i,data,line.itemId,lineId,line.q,line.r,absoluteValue,"OPENING_STOCK",id,envelope.userId,t)); m.push(this.ledger(ids.stock_ledger_entries+i,data,line.itemId,line.q>0n?"IN":"OUT","OPENING_STOCK",id,line.q<0n?-line.q:line.q,line.r,absoluteValue,envelope.userId,t)); m.push(this.balance(data.companyId,data.stockBookId,line.itemId,line.q,line.q>0n?absoluteValue:-absoluteValue,t));});
-    return this.commit(envelope,"OpeningStock",id,"created",m);
+    await assertOpeningStockContext(this.db, {
+      companyId: data.companyId,
+      stockBookId: data.stockBookId,
+      itemIds: lines.map((line) => line.itemId),
+    });
+    const ids = await nextIds(this.db, [
+      "opening_stocks",
+      "opening_stock_lines",
+      "fifo_layers",
+      "stock_ledger_entries",
+    ]);
+    const id = ids.opening_stocks;
+    const t = now();
+    const m: SqlMutation[] = [];
+    m.push(
+      sql(
+        "INSERT INTO opening_stocks(id,company_id,stock_book_id,reference_number,opening_date,remarks,created_at,updated_at,created_by_id) VALUES(?,?,?,?,?,?,?,?,?)",
+        id,
+        data.companyId,
+        data.stockBookId,
+        data.referenceNumber,
+        data.date,
+        data.remarks ?? null,
+        t,
+        t,
+        envelope.userId,
+      ),
+    );
+    lines.forEach((line, i) => {
+      const lineId = ids.opening_stock_lines + i;
+      const value = dbInt(line.totals.subtotal),
+        absoluteValue = Math.abs(value);
+      m.push(
+        sql(
+          "INSERT INTO opening_stock_lines(id,opening_stock_id,item_id,quantity_milliunits,rate_ten_thousandths,value_paise,remarks) VALUES(?,?,?,?,?,?,?)",
+          lineId,
+          id,
+          line.itemId,
+          dbInt(line.q),
+          dbInt(line.r),
+          value,
+          line.remarks ?? null,
+        ),
+      );
+      if (line.q > 0n)
+        m.push(
+          this.layer(
+            ids.fifo_layers + i,
+            data,
+            line.itemId,
+            lineId,
+            line.q,
+            line.r,
+            absoluteValue,
+            "OPENING_STOCK",
+            id,
+            envelope.userId,
+            t,
+          ),
+        );
+      m.push(
+        this.ledger(
+          ids.stock_ledger_entries + i,
+          data,
+          line.itemId,
+          line.q > 0n ? "IN" : "OUT",
+          "OPENING_STOCK",
+          id,
+          line.q < 0n ? -line.q : line.q,
+          line.r,
+          absoluteValue,
+          envelope.userId,
+          t,
+        ),
+      );
+      m.push(
+        this.balance(
+          data.companyId,
+          data.stockBookId,
+          line.itemId,
+          line.q,
+          line.q > 0n ? absoluteValue : -absoluteValue,
+          t,
+        ),
+      );
+    });
+    return this.commit(envelope, "OpeningStock", id, "created", m);
   }
 
-  private async createPurchase(envelope: AccountingEnvelope,data:PurchaseCommand){const lines=this.parseLines(data.lines,data.documentType==="GST");if(lines.some(l=>l.q<=0n))throw new Error("Quantity must be greater than zero."); const ids=await nextIds(this.db,["purchases","purchase_lines","fifo_layers","stock_ledger_entries","payables"]);const id=ids.purchases,t=now();let sub=0n,gst=0n,total=0n;for(const l of lines){sub+=l.totals.subtotal;gst+=l.totals.gst;total+=l.totals.total;}const m:SqlMutation[]=[sql("INSERT INTO purchases(id,company_id,stock_book_id,supplier_id,purchase_type,bill_number,bill_date,due_date,subtotal_paise,gst_total_paise,grand_total_paise,balance_amount_paise,payment_status,remarks,created_at,updated_at,created_by_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",id,data.companyId,data.stockBookId,data.supplierId,data.documentType,data.referenceNumber,data.date,data.dueDate??null,dbInt(sub),dbInt(gst),dbInt(total),dbInt(total),"UNPAID",data.remarks??null,t,t,envelope.userId)];lines.forEach((l,i)=>{const lid=ids.purchase_lines+i;m.push(sql("INSERT INTO purchase_lines(id,purchase_id,item_id,quantity_milliunits,rate_ten_thousandths,gst_basis_points,subtotal_paise,gst_amount_paise,line_total_paise) VALUES(?,?,?,?,?,?,?,?,?)",lid,id,l.itemId,dbInt(l.q),dbInt(l.r),dbInt(gstRate(l.gstPercent??0)),dbInt(l.totals.subtotal),dbInt(l.totals.gst),dbInt(l.totals.total)),this.layer(ids.fifo_layers+i,data,l.itemId,lid,l.q,l.r,dbInt(l.totals.subtotal),"PURCHASE",id,envelope.userId,t),this.ledger(ids.stock_ledger_entries+i,data,l.itemId,"IN","PURCHASE",id,l.q,l.r,dbInt(l.totals.subtotal),envelope.userId,t),this.balance(data.companyId,data.stockBookId,l.itemId,l.q,dbInt(l.totals.subtotal),t));});m.push(sql("INSERT INTO payables(id,company_id,stock_book_id,supplier_id,source_type,source_id,document_number,document_date,due_date,transaction_type,total_amount_paise,balance_amount_paise,payment_status,remarks,created_at,updated_at,created_by_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",ids.payables,data.companyId,data.stockBookId,data.supplierId,"PURCHASE",id,data.referenceNumber,data.date,data.dueDate??null,data.documentType,dbInt(total),dbInt(total),"UNPAID",data.remarks??null,t,t,envelope.userId));return this.commit(envelope,"Purchase",id,"created",m);}
-
-  private async fifo(companyId:number,bookId:number,itemId:number,required:ReturnType<typeof quantity>){const result=await this.db.prepare("SELECT id,source_date,available_quantity_milliunits,unit_cost_ten_thousandths FROM fifo_layers WHERE company_id=? AND stock_book_id=? AND item_id=? AND available_quantity_milliunits>0 ORDER BY source_date,id").bind(companyId,bookId,itemId).all<Row>();return allocateFifo(required,result.results.map(r=>({id:Number(r.id),sourceDate:String(r.source_date),availableQuantity:BigInt(r.available_quantity_milliunits!) as any,unitCost:BigInt(r.unit_cost_ten_thousandths!) as any})));}
-
-  private async createSale(envelope:AccountingEnvelope,data:SaleCommand){const lines=this.parseLines(data.lines,data.documentType==="GST");if(lines.some(l=>l.q<=0n))throw new Error("Quantity must be greater than zero.");const ids=await nextIds(this.db,["sales","sale_lines","fifo_consumptions","stock_ledger_entries","receivables"]);const id=ids.sales,t=now(),m:SqlMutation[]=[];let sub=0n,gst=0n,total=0n,cost=0n,ci=0;for(let i=0;i<lines.length;i++){const l=lines[i]!, allocation=await this.fifo(data.companyId,data.stockBookId,l.itemId,l.q);sub+=l.totals.subtotal;gst+=l.totals.gst;total+=l.totals.total;cost+=allocation.coveredCost;const lid=ids.sale_lines+i;m.push(sql("INSERT INTO sale_lines(id,sale_id,item_id,quantity_milliunits,sale_rate_ten_thousandths,gst_basis_points,subtotal_paise,gst_amount_paise,line_total_paise,fifo_cost_paise,gross_profit_paise) VALUES(?,?,?,?,?,?,?,?,?,?,?)",lid,id,l.itemId,dbInt(l.q),dbInt(l.r),dbInt(gstRate(l.gstPercent??0)),dbInt(l.totals.subtotal),dbInt(l.totals.gst),dbInt(l.totals.total),dbInt(allocation.coveredCost),dbInt(l.totals.subtotal-allocation.coveredCost)));for(const c of allocation.consumptions){if(c.layerId===null)continue;const layer=allocation.layers.find(x=>x.id===c.layerId)!;m.push(sql("UPDATE fifo_layers SET available_quantity_milliunits=?,available_value_paise=?,status=?,updated_at=? WHERE id=? AND available_quantity_milliunits>=?",dbInt(layer.availableQuantity),dbInt((layer.availableQuantity*layer.unitCost*100n+5_000_000n)/10_000_000n),layer.availableQuantity===0n?"CONSUMED":"PARTIAL",t,c.layerId,dbInt(c.quantity)),sql("INSERT INTO fifo_consumptions(id,fifo_layer_id,source_type,source_id,source_line_id,quantity_milliunits,rate_ten_thousandths,value_paise,created_at) VALUES(?,?,?,?,?,?,?,?,?)",ids.fifo_consumptions+ci++,c.layerId,"SALE",id,lid,dbInt(c.quantity),dbInt(c.rate),dbInt(c.value),t));}m.push(this.ledger(ids.stock_ledger_entries+i,data,l.itemId,"OUT","SALE",id,l.q,(allocation.coveredCost===0n?0n:(allocation.coveredCost*10_000_000n/l.q/100n)) as any,dbInt(allocation.coveredCost),envelope.userId,t),this.balance(data.companyId,data.stockBookId,l.itemId,-l.q as any,-allocation.coveredCost,t));}m.unshift(sql("INSERT INTO sales(id,company_id,stock_book_id,customer_id,sale_type,invoice_number,invoice_date,due_date,subtotal_paise,gst_total_paise,grand_total_paise,fifo_cost_paise,gross_profit_paise,balance_amount_paise,payment_status,remarks,created_at,updated_at,created_by_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",id,data.companyId,data.stockBookId,data.customerId,data.documentType,data.referenceNumber,data.date,data.dueDate??null,dbInt(sub),dbInt(gst),dbInt(total),dbInt(cost),dbInt(sub-cost),dbInt(total),"UNPAID",data.remarks??null,t,t,envelope.userId));m.push(sql("INSERT INTO receivables(id,company_id,stock_book_id,customer_id,source_type,source_id,document_number,document_date,due_date,transaction_type,total_amount_paise,balance_amount_paise,payment_status,remarks,created_at,updated_at,created_by_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",ids.receivables,data.companyId,data.stockBookId,data.customerId,"SALE",id,data.referenceNumber,data.date,data.dueDate??null,data.documentType,dbInt(total),dbInt(total),"UNPAID",data.remarks??null,t,t,envelope.userId));return this.commit(envelope,"Sale",id,"created",m);}
-
-  private async createPayment(envelope:AccountingEnvelope,data:PaymentCommand){const total=money(data.amount);const customer=data.paymentType.includes("RECEIPT")||data.paymentType.includes("RECEIVED");const table=customer?"receivables":"payables",party=customer?"customer_id":"supplier_id",sourceTable=customer?"sales":"purchases",sourceType=customer?"SALE":"PURCHASE";const rows=await this.db.prepare(`SELECT id,company_id,${party} party_id,due_date,document_date,total_amount_paise,paid_amount_paise FROM ${table} WHERE company_id=? AND ${party}=? AND balance_amount_paise>0 ORDER BY due_date,document_date,id`).bind(data.companyId,data.partyId).all<Row>();const outstanding:Outstanding[]=rows.results.map(r=>({id:Number(r.id),companyId:Number(r.company_id),partyId:Number(r.party_id),dueDate:r.due_date as string|null,documentDate:String(r.document_date),total:BigInt(r.total_amount_paise!) as Money,paid:BigInt(r.paid_amount_paise!) as Money}));const allocation=allocatePayment(total,data.companyId,data.partyId,outstanding,data.preferredTargetId);assertPaymentInvariant(total,allocation.allocated,allocation.unallocated);const ids=await nextIds(this.db,["payments","payment_allocations"]),id=ids.payments,t=now(),m:SqlMutation[]=[sql("INSERT INTO payments(id,company_id,payment_type,party_type,customer_id,supplier_id,payment_date,mode,reference_number,total_amount_paise,allocated_amount_paise,unallocated_amount_paise,remarks,created_at,updated_at,created_by_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",id,data.companyId,data.paymentType,customer?"CUSTOMER":"SUPPLIER",customer?data.partyId:null,customer?null:data.partyId,data.date,data.mode,data.referenceNumber??null,dbInt(total),dbInt(allocation.allocated),dbInt(allocation.unallocated),data.remarks??null,t,t,envelope.userId)];allocation.allocations.forEach((a,i)=>{const target=allocation.outstandings.find(r=>r.id===a.targetId)!;const balance=(target.total-target.paid) as Money;assertDocumentPaymentInvariant(target.total,target.paid,balance);const status=paymentStatus(target.total,target.paid);m.push(sql("INSERT INTO payment_allocations(id,payment_id,target_type,target_id,amount_paise,created_at) VALUES(?,?,?,?,?,?)",ids.payment_allocations+i,id,customer?"RECEIVABLE":"PAYABLE",a.targetId,dbInt(a.amount),t),sql(`UPDATE ${table} SET paid_amount_paise=?,balance_amount_paise=?,payment_status=?,updated_at=? WHERE id=?`,dbInt(target.paid),dbInt(balance),status,t,target.id),sql(`UPDATE ${sourceTable} SET paid_amount_paise=?,balance_amount_paise=?,payment_status=?,updated_at=? WHERE id=(SELECT source_id FROM ${table} WHERE id=? AND source_type=?)`,dbInt(target.paid),dbInt(balance),status,t,target.id,sourceType));});return this.commit(envelope,"Payment",id,"created",m);}
-
-  private async createTransferExact(envelope:AccountingEnvelope,data:TransferCommand){
-    if(data.companyId===data.toCompanyId)throw new Error("Transfer companies must differ.");
-    const lines=this.parseLines(data.lines,false),t=now();
-    if(lines.some(l=>l.q<=0n))throw new Error("Quantity must be greater than zero.");
-    const pendingByItem=new Map<number,Row[]>();let isReturn=false;
-    for(const line of lines){const pending=await this.db.prepare("SELECT l.id,l.transfer_id,l.quantity_milliunits,l.amount_owed_paise FROM inter_company_ledger_entries l JOIN inter_company_transfers t ON t.id=l.transfer_id WHERE l.stock_owner_company_id=? AND l.stock_user_company_id=? AND l.item_id=? AND t.is_void=0 ORDER BY t.transfer_date,t.id,l.id").bind(data.toCompanyId,data.companyId,line.itemId).all<Row>();const lots:Row[]=[];for(const row of pending.results){let q=BigInt(row.quantity_milliunits!);if(q>0n)lots.push({...row});else{let returned=-q;for(const lot of lots){if(returned<=0n)break;const available=BigInt(lot.quantity_milliunits!),take=available<returned?available:returned,amount=BigInt(lot.amount_owed_paise!);lot.quantity_milliunits=Number(available-take);lot.amount_owed_paise=Number(available===0n?0n:(amount*(available-take)+available/2n)/available);returned-=take;}}}const open=lots.filter(r=>BigInt(r.quantity_milliunits!)>0n);pendingByItem.set(line.itemId,open);const qty=open.reduce((s,r)=>s+BigInt(r.quantity_milliunits!),0n);if(qty>0n)isReturn=true;}
-    if(isReturn)for(const line of lines){const available=(pendingByItem.get(line.itemId)??[]).reduce((s,r)=>s+BigInt(r.quantity_milliunits!),0n);if(available<line.q)throw new Error(`Cannot return more stock than pending. Pending: ${available}; requested: ${line.q}.`);}
-    const ids=await nextIds(this.db,["inter_company_transfers","transfer_lines","fifo_consumptions","stock_ledger_entries","fifo_layers","inter_company_ledger_entries"]),id=ids.inter_company_transfers,m:SqlMutation[]=[];let total=0n,ci=0,li=0,fi=0;
-    for(let i=0;i<lines.length;i++){const line=lines[i]!,lineId=ids.transfer_lines+i;let lineValue=0n;
-      if(isReturn){let remaining:bigint=line.q;for(const lot of pendingByItem.get(line.itemId)??[]){if(remaining<=0n)break;const lotQty=BigInt(lot.quantity_milliunits!),take=lotQty<remaining?lotQty:remaining,lotValue=BigInt(lot.amount_owed_paise!),value=lotQty===0n?0n:(take*lotValue+lotQty/2n)/lotQty,unitRate=(value*10_000_000n/take/100n);lineValue+=value;m.push(this.layer(ids.fifo_layers+fi,{...data,companyId:data.toCompanyId,stockBookId:data.toStockBookId},line.itemId,lineId,take as any,unitRate as any,dbInt(value),"TRANSFER_RETURN",id,envelope.userId,t),this.ledger(ids.stock_ledger_entries+li,{...data,companyId:data.toCompanyId,stockBookId:data.toStockBookId},line.itemId,"IN","TRANSFER",id,take as any,unitRate as any,dbInt(value),envelope.userId,t),this.balance(data.toCompanyId,data.toStockBookId,line.itemId,take as any,value,t));fi++;li++;remaining-=take;}}
-      else{const allocation=await this.fifo(data.companyId,data.stockBookId,line.itemId,line.q);lineValue=allocation.coveredCost;for(const c of allocation.consumptions){m.push(this.ledger(ids.stock_ledger_entries+li++,data,line.itemId,"OUT","TRANSFER",id,c.quantity,c.rate,dbInt(c.value),envelope.userId,t),this.balance(data.companyId,data.stockBookId,line.itemId,-c.quantity as any,-c.value,t));if(c.layerId!==null)m.push(sql("UPDATE fifo_layers SET available_quantity_milliunits=available_quantity_milliunits-?,available_value_paise=available_value_paise-?,status=CASE WHEN available_quantity_milliunits-?=0 THEN 'CONSUMED' ELSE 'PARTIAL' END,updated_at=? WHERE id=? AND available_quantity_milliunits>=?",dbInt(c.quantity),dbInt(c.value),dbInt(c.quantity),t,c.layerId,dbInt(c.quantity)),sql("INSERT INTO fifo_consumptions(id,fifo_layer_id,source_type,source_id,source_line_id,quantity_milliunits,rate_ten_thousandths,value_paise,created_at) VALUES(?,?,?,?,?,?,?,?,?)",ids.fifo_consumptions+ci++,c.layerId,"TRANSFER",id,lineId,dbInt(c.quantity),dbInt(c.rate),dbInt(c.value),t));}}
-      total+=lineValue;m.push(sql("INSERT INTO transfer_lines(id,transfer_id,item_id,quantity_milliunits,fifo_value_paise) VALUES(?,?,?,?,?)",lineId,id,line.itemId,dbInt(line.q),dbInt(lineValue)),sql("INSERT INTO inter_company_ledger_entries(id,stock_owner_company_id,stock_user_company_id,transfer_id,item_id,quantity_milliunits,amount_owed_paise,settled_amount_paise,balance_amount_paise,status,created_at,updated_at,created_by_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",ids.inter_company_ledger_entries+i,isReturn?data.toCompanyId:data.companyId,isReturn?data.companyId:data.toCompanyId,id,line.itemId,isReturn?-dbInt(line.q):dbInt(line.q),isReturn?-dbInt(lineValue):dbInt(lineValue),0,isReturn?0:dbInt(lineValue),isReturn?"RETURNED":"PENDING",t,t,envelope.userId));}
-    m.unshift(sql("INSERT INTO inter_company_transfers(id,from_company_id,from_stock_book_id,to_company_id,to_stock_book_id,reference_number,transfer_date,reason,remarks,total_fifo_value_paise,mismatch_approved,approval_reason,approved_by_id,approved_at,created_at,updated_at,created_by_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",id,data.companyId,data.stockBookId,data.toCompanyId,data.toStockBookId,data.referenceNumber,data.date,data.reason??null,data.remarks??null,dbInt(total),data.mismatchApproved?1:0,data.approvalReason??null,data.mismatchApproved?envelope.userId:null,data.mismatchApproved?t:null,t,t,envelope.userId));return this.commit(envelope,"InterCompanyTransfer",id,"created",m,null,{...data,direction:isReturn?"RETURN":"ISSUE"});
+  private async createPurchase(
+    envelope: AccountingEnvelope,
+    data: PurchaseCommand,
+  ) {
+    const lines = this.parseLines(data.lines, data.documentType === "GST");
+    if (lines.some((l) => l.q <= 0n))
+      throw new Error("Quantity must be greater than zero.");
+    await assertPurchaseContext(this.db, {
+      companyId: data.companyId,
+      stockBookId: data.stockBookId,
+      supplierId: data.supplierId,
+      documentType: data.documentType,
+      itemIds: lines.map((line) => line.itemId),
+    });
+    const ids = await nextIds(this.db, [
+      "purchases",
+      "purchase_lines",
+      "fifo_layers",
+      "stock_ledger_entries",
+      "payables",
+    ]);
+    const id = ids.purchases,
+      t = now();
+    let sub = 0n,
+      gst = 0n,
+      total = 0n;
+    for (const l of lines) {
+      sub += l.totals.subtotal;
+      gst += l.totals.gst;
+      total += l.totals.total;
+    }
+    const m: SqlMutation[] = [
+      sql(
+        "INSERT INTO purchases(id,company_id,stock_book_id,supplier_id,purchase_type,bill_number,bill_date,due_date,subtotal_paise,gst_total_paise,grand_total_paise,balance_amount_paise,payment_status,remarks,created_at,updated_at,created_by_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        id,
+        data.companyId,
+        data.stockBookId,
+        data.supplierId,
+        data.documentType,
+        data.referenceNumber,
+        data.date,
+        data.dueDate ?? null,
+        dbInt(sub),
+        dbInt(gst),
+        dbInt(total),
+        dbInt(total),
+        "UNPAID",
+        data.remarks ?? null,
+        t,
+        t,
+        envelope.userId,
+      ),
+    ];
+    lines.forEach((l, i) => {
+      const lid = ids.purchase_lines + i;
+      m.push(
+        sql(
+          "INSERT INTO purchase_lines(id,purchase_id,item_id,quantity_milliunits,rate_ten_thousandths,gst_basis_points,subtotal_paise,gst_amount_paise,line_total_paise) VALUES(?,?,?,?,?,?,?,?,?)",
+          lid,
+          id,
+          l.itemId,
+          dbInt(l.q),
+          dbInt(l.r),
+          dbInt(gstRate(l.gstPercent ?? 0)),
+          dbInt(l.totals.subtotal),
+          dbInt(l.totals.gst),
+          dbInt(l.totals.total),
+        ),
+        this.layer(
+          ids.fifo_layers + i,
+          data,
+          l.itemId,
+          lid,
+          l.q,
+          l.r,
+          dbInt(l.totals.subtotal),
+          "PURCHASE",
+          id,
+          envelope.userId,
+          t,
+        ),
+        this.ledger(
+          ids.stock_ledger_entries + i,
+          data,
+          l.itemId,
+          "IN",
+          "PURCHASE",
+          id,
+          l.q,
+          l.r,
+          dbInt(l.totals.subtotal),
+          envelope.userId,
+          t,
+        ),
+        this.balance(
+          data.companyId,
+          data.stockBookId,
+          l.itemId,
+          l.q,
+          dbInt(l.totals.subtotal),
+          t,
+        ),
+      );
+    });
+    m.push(
+      sql(
+        "INSERT INTO payables(id,company_id,stock_book_id,supplier_id,source_type,source_id,document_number,document_date,due_date,transaction_type,total_amount_paise,balance_amount_paise,payment_status,remarks,created_at,updated_at,created_by_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        ids.payables,
+        data.companyId,
+        data.stockBookId,
+        data.supplierId,
+        "PURCHASE",
+        id,
+        data.referenceNumber,
+        data.date,
+        data.dueDate ?? null,
+        data.documentType,
+        dbInt(total),
+        dbInt(total),
+        "UNPAID",
+        data.remarks ?? null,
+        t,
+        t,
+        envelope.userId,
+      ),
+    );
+    return this.commit(envelope, "Purchase", id, "created", m);
   }
 
-  private async createTransfer(envelope:AccountingEnvelope,data:TransferCommand){if(data.companyId===data.toCompanyId)throw new Error("Transfer companies must differ.");const lines=this.parseLines(data.lines,false);const ids=await nextIds(this.db,["inter_company_transfers","transfer_lines","fifo_consumptions","stock_ledger_entries","fifo_layers","inter_company_ledger_entries","receivables","payables"]),id=ids.inter_company_transfers,t=now(),m:SqlMutation[]=[];let total=0n,ci=0;for(let i=0;i<lines.length;i++){const l=lines[i]!,a=await this.fifo(data.companyId,data.stockBookId,l.itemId,l.q),lid=ids.transfer_lines+i;total+=a.coveredCost;m.push(sql("INSERT INTO transfer_lines(id,transfer_id,item_id,quantity_milliunits,fifo_value_paise) VALUES(?,?,?,?,?)",lid,id,l.itemId,dbInt(l.q),dbInt(a.coveredCost)),this.ledger(ids.stock_ledger_entries+i*2,data,l.itemId,"OUT","TRANSFER",id,l.q,l.r,dbInt(a.coveredCost),envelope.userId,t),this.ledger(ids.stock_ledger_entries+i*2+1,{...data,companyId:data.toCompanyId,stockBookId:data.toStockBookId},l.itemId,"IN","TRANSFER",id,l.q,l.r,dbInt(a.coveredCost),envelope.userId,t),this.balance(data.companyId,data.stockBookId,l.itemId,-l.q as any,-a.coveredCost,t),this.balance(data.toCompanyId,data.toStockBookId,l.itemId,l.q,dbInt(a.coveredCost),t),this.layer(ids.fifo_layers+i,{...data,companyId:data.toCompanyId,stockBookId:data.toStockBookId},l.itemId,lid,l.q,l.r,dbInt(a.coveredCost),"TRANSFER_IN",id,envelope.userId,t));for(const c of a.consumptions)if(c.layerId!==null)m.push(sql("UPDATE fifo_layers SET available_quantity_milliunits=available_quantity_milliunits-?,available_value_paise=available_value_paise-?,status=CASE WHEN available_quantity_milliunits-?=0 THEN 'CONSUMED' ELSE 'PARTIAL' END,updated_at=? WHERE id=? AND available_quantity_milliunits>=?",dbInt(c.quantity),dbInt(c.value),dbInt(c.quantity),t,c.layerId,dbInt(c.quantity)),sql("INSERT INTO fifo_consumptions(id,fifo_layer_id,source_type,source_id,source_line_id,quantity_milliunits,rate_ten_thousandths,value_paise,created_at) VALUES(?,?,?,?,?,?,?,?,?)",ids.fifo_consumptions+ci++,c.layerId,"TRANSFER",id,lid,dbInt(c.quantity),dbInt(c.rate),dbInt(c.value),t));}m.unshift(sql("INSERT INTO inter_company_transfers(id,from_company_id,from_stock_book_id,to_company_id,to_stock_book_id,reference_number,transfer_date,reason,remarks,total_fifo_value_paise,mismatch_approved,approval_reason,approved_by_id,approved_at,created_at,updated_at,created_by_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",id,data.companyId,data.stockBookId,data.toCompanyId,data.toStockBookId,data.referenceNumber,data.date,data.reason??null,data.remarks??null,dbInt(total),data.mismatchApproved?1:0,data.approvalReason??null,data.mismatchApproved?envelope.userId:null,data.mismatchApproved?t:null,t,t,envelope.userId));return this.commit(envelope,"InterCompanyTransfer",id,"created",m);}
-
-  private async edit(envelope:AccountingEnvelope): Promise<CommandResult>{
-    const payload=envelope.payload as OpeningCommand;
-    if(!payload.id)throw new Error("Document ID is required.");
-    if(envelope.type==="opening.edit") return this.editOpening(envelope,payload);
-    if(envelope.type==="purchase.edit"){const p=await planPurchaseEdit(this.db,payload as PurchaseCommand,envelope.userId);return this.commit(envelope,p.type,p.id,"updated",p.mutations,p.before);}
-    if(envelope.type==="sale.edit"){const p=await planSaleEdit(this.db,payload as SaleCommand,envelope.userId);return this.commit(envelope,p.type,p.id,"updated",p.mutations,p.before);}
-    if(envelope.type==="transfer.edit") return this.editTransfer(envelope,payload as unknown as TransferCommand);
-    if(envelope.type==="payment.edit"){const p=await planReconstructPayment(this.db,envelope.payload as PaymentCommand&{id:number},envelope.userId);return this.commit(envelope,p.type,p.id,p.status,p.mutations,p.before);}
-    if(this.openingBalanceKind(envelope.type)){const p=await planUpdateOpeningBalance(this.db,this.openingBalance(envelope) as OpeningBalanceCommand&{id:number},envelope.userId);return this.commit(envelope,p.type,p.id,p.status,p.mutations,p.before);}
-    throw new Error(`${envelope.type} requires reconstruction and is not yet available.`);
+  private async fifo(
+    companyId: number,
+    bookId: number,
+    itemId: number,
+    required: ReturnType<typeof quantity>,
+  ) {
+    const result = await this.db
+      .prepare(
+        "SELECT id,source_date,available_quantity_milliunits,unit_cost_ten_thousandths FROM fifo_layers WHERE company_id=? AND stock_book_id=? AND item_id=? AND available_quantity_milliunits>0 ORDER BY source_date,id",
+      )
+      .bind(companyId, bookId, itemId)
+      .all<Row>();
+    return allocateFifo(
+      required,
+      result.results.map((r) => ({
+        id: Number(r.id),
+        sourceDate: String(r.source_date),
+        availableQuantity: BigInt(r.available_quantity_milliunits!) as any,
+        unitCost: BigInt(r.unit_cost_ten_thousandths!) as any,
+      })),
+    );
   }
 
-  private async editOpening(envelope:AccountingEnvelope,data:OpeningCommand):Promise<CommandResult>{
-    const existing=await this.db.prepare("SELECT * FROM opening_stocks WHERE id=? AND is_void=0").bind(data.id).first<Row>();
-    if(!existing)throw new Error("Opening stock was not found or is void.");
-    const consumed=await this.db.prepare("SELECT COUNT(*) count FROM fifo_layers WHERE source_type='OPENING_STOCK' AND source_id=? AND available_quantity_milliunits<>original_quantity_milliunits").bind(data.id).first<Row>();
-    if(Number(consumed?.count)>0)throw new Error("Opening stock cannot be edited after it has been consumed.");
-    const oldLedger=await this.db.prepare("SELECT company_id,stock_book_id,item_id,quantity_in_milliunits,quantity_out_milliunits,value_paise FROM stock_ledger_entries WHERE transaction_type='OPENING_STOCK' AND transaction_id=?").bind(data.id).all<Row>();
-    const lines=this.parseLines(data.lines,false),ids=await nextIds(this.db,["opening_stock_lines","fifo_layers","stock_ledger_entries"]),t=now(),m:SqlMutation[]=[];
-    for(const row of oldLedger.results){const q=BigInt(row.quantity_in_milliunits!)-BigInt(row.quantity_out_milliunits!);const signedValue=BigInt(row.quantity_in_milliunits!)>0n?BigInt(row.value_paise!):-BigInt(row.value_paise!);m.push(this.balance(Number(row.company_id),Number(row.stock_book_id),Number(row.item_id),-q as any,-signedValue,t));}
-    m.push(sql("DELETE FROM stock_ledger_entries WHERE transaction_type='OPENING_STOCK' AND transaction_id=?",data.id),sql("DELETE FROM fifo_layers WHERE source_type='OPENING_STOCK' AND source_id=?",data.id),sql("DELETE FROM opening_stock_lines WHERE opening_stock_id=?",data.id),sql("UPDATE opening_stocks SET company_id=?,stock_book_id=?,reference_number=?,opening_date=?,remarks=?,updated_at=?,updated_by_id=? WHERE id=?",data.companyId,data.stockBookId,data.referenceNumber,data.date,data.remarks??null,t,envelope.userId,data.id));
-    lines.forEach((line,i)=>{const lineId=ids.opening_stock_lines+i,value=dbInt(line.totals.subtotal),absolute=line.q<0n?-line.q:line.q;m.push(sql("INSERT INTO opening_stock_lines(id,opening_stock_id,item_id,quantity_milliunits,rate_ten_thousandths,value_paise,remarks) VALUES(?,?,?,?,?,?,?)",lineId,data.id,line.itemId,dbInt(line.q),dbInt(line.r),value,line.remarks??null));if(line.q>0n)m.push(this.layer(ids.fifo_layers+i,data,line.itemId,lineId,line.q,line.r,value,"OPENING_STOCK",data.id!,envelope.userId,t));m.push(this.ledger(ids.stock_ledger_entries+i,data,line.itemId,line.q>0n?"IN":"OUT","OPENING_STOCK",data.id!,absolute,line.r,Math.abs(value),envelope.userId,t),this.balance(data.companyId,data.stockBookId,line.itemId,line.q,line.q>0n?Math.abs(value):-Math.abs(value),t));});
-    return this.commit(envelope,"OpeningStock",data.id!,"updated",m,existing);
+  private async createSale(envelope: AccountingEnvelope, data: SaleCommand) {
+    const lines = this.parseLines(data.lines, data.documentType === "GST");
+    this.assertUniqueItemLines(lines, "A sale");
+    if (lines.some((l) => l.q <= 0n))
+      throw new Error("Quantity must be greater than zero.");
+    await assertSaleContext(this.db, {
+      companyId: data.companyId,
+      stockBookId: data.stockBookId,
+      customerId: data.customerId,
+      documentType: data.documentType,
+      itemIds: lines.map((line) => line.itemId),
+    });
+    const ids = await nextIds(this.db, [
+      "sales",
+      "sale_lines",
+      "fifo_consumptions",
+      "stock_ledger_entries",
+      "receivables",
+    ]);
+    const id = ids.sales,
+      t = now(),
+      m: SqlMutation[] = [];
+    let sub = 0n,
+      gst = 0n,
+      total = 0n,
+      cost = 0n,
+      ci = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i]!,
+        allocation = await this.fifo(
+          data.companyId,
+          data.stockBookId,
+          l.itemId,
+          l.q,
+        );
+      sub += l.totals.subtotal;
+      gst += l.totals.gst;
+      total += l.totals.total;
+      cost += allocation.coveredCost;
+      const lid = ids.sale_lines + i;
+      m.push(
+        sql(
+          "INSERT INTO sale_lines(id,sale_id,item_id,quantity_milliunits,sale_rate_ten_thousandths,gst_basis_points,subtotal_paise,gst_amount_paise,line_total_paise,fifo_cost_paise,gross_profit_paise) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+          lid,
+          id,
+          l.itemId,
+          dbInt(l.q),
+          dbInt(l.r),
+          dbInt(gstRate(l.gstPercent ?? 0)),
+          dbInt(l.totals.subtotal),
+          dbInt(l.totals.gst),
+          dbInt(l.totals.total),
+          dbInt(allocation.coveredCost),
+          dbInt(l.totals.subtotal - allocation.coveredCost),
+        ),
+      );
+      for (const c of allocation.consumptions) {
+        if (c.layerId === null) continue;
+        const layer = allocation.layers.find((x) => x.id === c.layerId)!;
+        m.push(
+          sql(
+            "UPDATE fifo_layers SET available_quantity_milliunits=?,available_value_paise=?,status=?,updated_at=? WHERE id=? AND available_quantity_milliunits>=?",
+            dbInt(layer.availableQuantity),
+            dbInt(
+              (layer.availableQuantity * layer.unitCost * 100n + 5_000_000n) /
+                10_000_000n,
+            ),
+            layer.availableQuantity === 0n ? "CONSUMED" : "PARTIAL",
+            t,
+            c.layerId,
+            dbInt(c.quantity),
+          ),
+          sql(
+            "INSERT INTO fifo_consumptions(id,fifo_layer_id,source_type,source_id,source_line_id,quantity_milliunits,rate_ten_thousandths,value_paise,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+            ids.fifo_consumptions + ci++,
+            c.layerId,
+            "SALE",
+            id,
+            lid,
+            dbInt(c.quantity),
+            dbInt(c.rate),
+            dbInt(c.value),
+            t,
+          ),
+        );
+      }
+      m.push(
+        this.ledger(
+          ids.stock_ledger_entries + i,
+          data,
+          l.itemId,
+          "OUT",
+          "SALE",
+          id,
+          l.q,
+          (allocation.coveredCost === 0n
+            ? 0n
+            : (allocation.coveredCost * 10_000_000n) / l.q / 100n) as any,
+          dbInt(allocation.coveredCost),
+          envelope.userId,
+          t,
+        ),
+        this.balance(
+          data.companyId,
+          data.stockBookId,
+          l.itemId,
+          -l.q as any,
+          -allocation.coveredCost,
+          t,
+        ),
+      );
+    }
+    m.unshift(
+      sql(
+        "INSERT INTO sales(id,company_id,stock_book_id,customer_id,sale_type,invoice_number,invoice_date,due_date,subtotal_paise,gst_total_paise,grand_total_paise,fifo_cost_paise,gross_profit_paise,balance_amount_paise,payment_status,remarks,created_at,updated_at,created_by_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        id,
+        data.companyId,
+        data.stockBookId,
+        data.customerId,
+        data.documentType,
+        data.referenceNumber,
+        data.date,
+        data.dueDate ?? null,
+        dbInt(sub),
+        dbInt(gst),
+        dbInt(total),
+        dbInt(cost),
+        dbInt(sub - cost),
+        dbInt(total),
+        "UNPAID",
+        data.remarks ?? null,
+        t,
+        t,
+        envelope.userId,
+      ),
+    );
+    m.push(
+      sql(
+        "INSERT INTO receivables(id,company_id,stock_book_id,customer_id,source_type,source_id,document_number,document_date,due_date,transaction_type,total_amount_paise,balance_amount_paise,payment_status,remarks,created_at,updated_at,created_by_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        ids.receivables,
+        data.companyId,
+        data.stockBookId,
+        data.customerId,
+        "SALE",
+        id,
+        data.referenceNumber,
+        data.date,
+        data.dueDate ?? null,
+        data.documentType,
+        dbInt(total),
+        dbInt(total),
+        "UNPAID",
+        data.remarks ?? null,
+        t,
+        t,
+        envelope.userId,
+      ),
+    );
+    return this.commit(envelope, "Sale", id, "created", m);
   }
 
-  private async editTransfer(envelope:AccountingEnvelope,data:TransferCommand):Promise<CommandResult>{const old=await this.db.prepare("SELECT * FROM inter_company_transfers WHERE id=? AND is_void=0").bind(data.id).first<Row>();if(!old)throw new Error("Transfer was not found or is void.");if(Number(old.from_company_id)!==data.companyId||Number(old.to_company_id)!==data.toCompanyId){const activity=await this.db.prepare("SELECT COUNT(*) count FROM inter_company_ledger_entries WHERE transfer_id=?").bind(data.id).first<Row>();if(Number(activity?.count)>0)throw new Error("Transfer companies cannot be changed after stock movement.");}const t=now(),m=[sql("UPDATE inter_company_transfers SET from_company_id=?,from_stock_book_id=?,to_company_id=?,to_stock_book_id=?,reference_number=?,transfer_date=?,reason=?,remarks=?,mismatch_approved=?,approval_reason=?,approved_by_id=?,approved_at=?,updated_at=?,updated_by_id=? WHERE id=?",data.companyId,data.stockBookId,data.toCompanyId,data.toStockBookId,data.referenceNumber,data.date,data.reason??null,data.remarks??null,data.mismatchApproved?1:0,data.approvalReason??null,data.mismatchApproved?envelope.userId:null,data.mismatchApproved?t:null,t,envelope.userId,data.id),sql("UPDATE fifo_layers SET source_reference=?,source_date=?,updated_at=? WHERE source_type IN('TRANSFER_IN','TRANSFER_RETURN') AND source_id=?",data.referenceNumber,data.date,t,data.id),sql("UPDATE stock_ledger_entries SET reference_number=?,entry_date=? WHERE transaction_type='TRANSFER' AND transaction_id=?",data.referenceNumber,data.date,data.id)];return this.commit(envelope,"InterCompanyTransfer",data.id!,"updated",m,old);}
-  private async remove(envelope:AccountingEnvelope){const data=envelope.payload as VoidCommand;
-    if(envelope.type==="payment.delete"){const p=await planDeletePayment(this.db,data.id);return this.commit(envelope,p.type,p.id,p.status,p.mutations,p.before);}
-    const balanceKind=this.openingBalanceKind(envelope.type);if(balanceKind&&envelope.type.endsWith(".delete")){const p=await planDeleteOpeningBalance(this.db,balanceKind,data.id);return this.commit(envelope,p.type,p.id,p.status,p.mutations,p.before);}
-    if(envelope.type==="opening.void")return this.voidOpening(envelope,data);
-    if(envelope.type==="sale.void")return this.voidSale(envelope,data);
-    if(envelope.type==="purchase.void")return this.voidPurchase(envelope,data);
-    if(envelope.type==="transfer.void")return this.voidTransfer(envelope,data);
+  private async createPayment(
+    envelope: AccountingEnvelope,
+    data: PaymentCommand,
+  ) {
+    const total = money(data.amount);
+    const customer =
+      data.paymentType.includes("RECEIPT") ||
+      data.paymentType.includes("RECEIVED");
+    await assertPaymentContext(this.db, {
+      companyId: data.companyId,
+      partyId: data.partyId,
+      customer,
+      mode: data.mode,
+    });
+    const table = customer ? "receivables" : "payables",
+      party = customer ? "customer_id" : "supplier_id",
+      sourceTable = customer ? "sales" : "purchases",
+      sourceType = customer ? "SALE" : "PURCHASE";
+    const rows = await this.db
+      .prepare(
+        `SELECT id,company_id,${party} party_id,due_date,document_date,total_amount_paise,paid_amount_paise FROM ${table} WHERE company_id=? AND ${party}=? AND balance_amount_paise>0 ORDER BY due_date,document_date,id`,
+      )
+      .bind(data.companyId, data.partyId)
+      .all<Row>();
+    const outstanding: Outstanding[] = rows.results.map((r) => ({
+      id: Number(r.id),
+      companyId: Number(r.company_id),
+      partyId: Number(r.party_id),
+      dueDate: r.due_date as string | null,
+      documentDate: String(r.document_date),
+      total: BigInt(r.total_amount_paise!) as Money,
+      paid: BigInt(r.paid_amount_paise!) as Money,
+    }));
+    const allocation = allocatePayment(
+      total,
+      data.companyId,
+      data.partyId,
+      outstanding,
+      data.preferredTargetId,
+    );
+    assertPaymentInvariant(total, allocation.allocated, allocation.unallocated);
+    const ids = await nextIds(this.db, ["payments", "payment_allocations"]),
+      id = ids.payments,
+      t = now(),
+      m: SqlMutation[] = [
+        sql(
+          "INSERT INTO payments(id,company_id,payment_type,party_type,customer_id,supplier_id,payment_date,mode,reference_number,total_amount_paise,allocated_amount_paise,unallocated_amount_paise,remarks,created_at,updated_at,created_by_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+          id,
+          data.companyId,
+          data.paymentType,
+          customer ? "CUSTOMER" : "SUPPLIER",
+          customer ? data.partyId : null,
+          customer ? null : data.partyId,
+          data.date,
+          data.mode,
+          data.referenceNumber ?? null,
+          dbInt(total),
+          dbInt(allocation.allocated),
+          dbInt(allocation.unallocated),
+          data.remarks ?? null,
+          t,
+          t,
+          envelope.userId,
+        ),
+      ];
+    allocation.allocations.forEach((a, i) => {
+      const target = allocation.outstandings.find((r) => r.id === a.targetId)!;
+      const balance = (target.total - target.paid) as Money;
+      assertDocumentPaymentInvariant(target.total, target.paid, balance);
+      const status = paymentStatus(target.total, target.paid);
+      m.push(
+        sql(
+          "INSERT INTO payment_allocations(id,payment_id,target_type,target_id,amount_paise,created_at) VALUES(?,?,?,?,?,?)",
+          ids.payment_allocations + i,
+          id,
+          customer ? "RECEIVABLE" : "PAYABLE",
+          a.targetId,
+          dbInt(a.amount),
+          t,
+        ),
+        sql(
+          `UPDATE ${table} SET paid_amount_paise=?,balance_amount_paise=?,payment_status=?,updated_at=? WHERE id=?`,
+          dbInt(target.paid),
+          dbInt(balance),
+          status,
+          t,
+          target.id,
+        ),
+        sql(
+          `UPDATE ${sourceTable} SET paid_amount_paise=?,balance_amount_paise=?,payment_status=?,updated_at=? WHERE id=(SELECT source_id FROM ${table} WHERE id=? AND source_type=?)`,
+          dbInt(target.paid),
+          dbInt(balance),
+          status,
+          t,
+          target.id,
+          sourceType,
+        ),
+      );
+    });
+    return this.commit(envelope, "Payment", id, "created", m);
+  }
+
+  private async createTransferExact(
+    envelope: AccountingEnvelope,
+    data: TransferCommand,
+  ) {
+    if (data.companyId === data.toCompanyId)
+      throw new Error("Transfer companies must differ.");
+    const lines = this.parseLines(data.lines, false),
+      t = now();
+    this.assertUniqueItemLines(lines, "A transfer");
+    if (lines.some((l) => l.q <= 0n))
+      throw new Error("Quantity must be greater than zero.");
+    await assertTransferContext(this.db, {
+      companyId: data.companyId,
+      stockBookId: data.stockBookId,
+      toCompanyId: data.toCompanyId,
+      toStockBookId: data.toStockBookId,
+      mismatchApproved: Boolean(data.mismatchApproved),
+      itemIds: lines.map((line) => line.itemId),
+    });
+    const pendingByItem = new Map<number, Row[]>();
+    let isReturn = false;
+    for (const line of lines) {
+      const pending = await this.db
+        .prepare(
+          "SELECT l.id,l.transfer_id,l.quantity_milliunits,l.amount_owed_paise,t.reason FROM inter_company_ledger_entries l JOIN inter_company_transfers t ON t.id=l.transfer_id WHERE l.stock_owner_company_id=? AND l.stock_user_company_id=? AND l.item_id=? AND t.is_void=0 ORDER BY t.transfer_date,t.id,l.id",
+        )
+        .bind(data.toCompanyId, data.companyId, line.itemId)
+        .all<Row>();
+      const lots: Row[] = [];
+      for (const row of pending.results) {
+        let q = BigInt(row.quantity_milliunits!);
+        if (row.reason === "OPENING_PENDING_STOCK" && q <= 0n) continue;
+        if (q > 0n) lots.push({ ...row });
+        else {
+          let returned = -q;
+          for (const lot of lots) {
+            if (returned <= 0n) break;
+            const available = BigInt(lot.quantity_milliunits!),
+              take = available < returned ? available : returned,
+              amount = BigInt(lot.amount_owed_paise!);
+            lot.quantity_milliunits = Number(available - take);
+            lot.amount_owed_paise = Number(
+              available === 0n
+                ? 0n
+                : (amount * (available - take) + available / 2n) / available,
+            );
+            returned -= take;
+          }
+        }
+      }
+      const open = lots.filter((r) => BigInt(r.quantity_milliunits!) > 0n);
+      pendingByItem.set(line.itemId, open);
+      const qty = open.reduce((s, r) => s + BigInt(r.quantity_milliunits!), 0n);
+      if (qty > 0n) isReturn = true;
+    }
+    if (isReturn)
+      for (const line of lines) {
+        const available = (pendingByItem.get(line.itemId) ?? []).reduce(
+          (s, r) => s + BigInt(r.quantity_milliunits!),
+          0n,
+        );
+        if (available < line.q)
+          throw new Error(
+            `Cannot return more stock than pending. Pending: ${available}; requested: ${line.q}.`,
+          );
+      }
+    const ids = await nextIds(this.db, [
+        "inter_company_transfers",
+        "transfer_lines",
+        "fifo_consumptions",
+        "stock_ledger_entries",
+        "fifo_layers",
+        "inter_company_ledger_entries",
+      ]),
+      id = ids.inter_company_transfers,
+      m: SqlMutation[] = [];
+    let total = 0n,
+      ci = 0,
+      li = 0,
+      fi = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]!,
+        lineId = ids.transfer_lines + i;
+      let lineValue = 0n;
+      if (isReturn) {
+        let remaining: bigint = line.q;
+        for (const lot of pendingByItem.get(line.itemId) ?? []) {
+          if (remaining <= 0n) break;
+          const lotQty = BigInt(lot.quantity_milliunits!),
+            take = lotQty < remaining ? lotQty : remaining,
+            lotValue = BigInt(lot.amount_owed_paise!),
+            value =
+              lotQty === 0n ? 0n : (take * lotValue + lotQty / 2n) / lotQty,
+            unitRate = (value * 10_000_000n) / take / 100n;
+          lineValue += value;
+          m.push(
+            this.layer(
+              ids.fifo_layers + fi,
+              {
+                ...data,
+                companyId: data.toCompanyId,
+                stockBookId: data.toStockBookId,
+              },
+              line.itemId,
+              lineId,
+              take as any,
+              unitRate as any,
+              dbInt(value),
+              "TRANSFER_RETURN",
+              id,
+              envelope.userId,
+              t,
+            ),
+            this.ledger(
+              ids.stock_ledger_entries + li,
+              {
+                ...data,
+                companyId: data.toCompanyId,
+                stockBookId: data.toStockBookId,
+              },
+              line.itemId,
+              "IN",
+              "TRANSFER",
+              id,
+              take as any,
+              unitRate as any,
+              dbInt(value),
+              envelope.userId,
+              t,
+            ),
+            this.balance(
+              data.toCompanyId,
+              data.toStockBookId,
+              line.itemId,
+              take as any,
+              value,
+              t,
+            ),
+          );
+          fi++;
+          li++;
+          remaining -= take;
+        }
+      } else {
+        const allocation = await this.fifo(
+          data.companyId,
+          data.stockBookId,
+          line.itemId,
+          line.q,
+        );
+        lineValue = allocation.coveredCost;
+        for (const c of allocation.consumptions) {
+          m.push(
+            this.ledger(
+              ids.stock_ledger_entries + li++,
+              data,
+              line.itemId,
+              "OUT",
+              "TRANSFER",
+              id,
+              c.quantity,
+              c.rate,
+              dbInt(c.value),
+              envelope.userId,
+              t,
+            ),
+            this.balance(
+              data.companyId,
+              data.stockBookId,
+              line.itemId,
+              -c.quantity as any,
+              -c.value,
+              t,
+            ),
+          );
+          if (c.layerId !== null)
+            m.push(
+              sql(
+                "UPDATE fifo_layers SET available_quantity_milliunits=available_quantity_milliunits-?,available_value_paise=available_value_paise-?,status=CASE WHEN available_quantity_milliunits-?=0 THEN 'CONSUMED' ELSE 'PARTIAL' END,updated_at=? WHERE id=? AND available_quantity_milliunits>=?",
+                dbInt(c.quantity),
+                dbInt(c.value),
+                dbInt(c.quantity),
+                t,
+                c.layerId,
+                dbInt(c.quantity),
+              ),
+              sql(
+                "INSERT INTO fifo_consumptions(id,fifo_layer_id,source_type,source_id,source_line_id,quantity_milliunits,rate_ten_thousandths,value_paise,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+                ids.fifo_consumptions + ci++,
+                c.layerId,
+                "TRANSFER",
+                id,
+                lineId,
+                dbInt(c.quantity),
+                dbInt(c.rate),
+                dbInt(c.value),
+                t,
+              ),
+            );
+        }
+      }
+      total += lineValue;
+      m.push(
+        sql(
+          "INSERT INTO transfer_lines(id,transfer_id,item_id,quantity_milliunits,fifo_value_paise) VALUES(?,?,?,?,?)",
+          lineId,
+          id,
+          line.itemId,
+          dbInt(line.q),
+          dbInt(lineValue),
+        ),
+        sql(
+          "INSERT INTO inter_company_ledger_entries(id,stock_owner_company_id,stock_user_company_id,transfer_id,item_id,quantity_milliunits,amount_owed_paise,settled_amount_paise,balance_amount_paise,status,created_at,updated_at,created_by_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+          ids.inter_company_ledger_entries + i,
+          isReturn ? data.toCompanyId : data.companyId,
+          isReturn ? data.companyId : data.toCompanyId,
+          id,
+          line.itemId,
+          isReturn ? -dbInt(line.q) : dbInt(line.q),
+          isReturn ? -dbInt(lineValue) : dbInt(lineValue),
+          0,
+          isReturn ? 0 : dbInt(lineValue),
+          isReturn ? "RETURNED" : "PENDING",
+          t,
+          t,
+          envelope.userId,
+        ),
+      );
+    }
+    m.unshift(
+      sql(
+        "INSERT INTO inter_company_transfers(id,from_company_id,from_stock_book_id,to_company_id,to_stock_book_id,reference_number,transfer_date,reason,remarks,total_fifo_value_paise,mismatch_approved,approval_reason,approved_by_id,approved_at,created_at,updated_at,created_by_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        id,
+        data.companyId,
+        data.stockBookId,
+        data.toCompanyId,
+        data.toStockBookId,
+        data.referenceNumber,
+        data.date,
+        data.reason ?? null,
+        data.remarks ?? null,
+        dbInt(total),
+        data.mismatchApproved ? 1 : 0,
+        data.approvalReason ?? null,
+        data.mismatchApproved ? envelope.userId : null,
+        data.mismatchApproved ? t : null,
+        t,
+        t,
+        envelope.userId,
+      ),
+    );
+    return this.commit(
+      envelope,
+      "InterCompanyTransfer",
+      id,
+      "created",
+      m,
+      null,
+      { ...data, direction: isReturn ? "RETURN" : "ISSUE" },
+    );
+  }
+
+  private async createTransfer(
+    envelope: AccountingEnvelope,
+    data: TransferCommand,
+  ) {
+    if (data.companyId === data.toCompanyId)
+      throw new Error("Transfer companies must differ.");
+    const lines = this.parseLines(data.lines, false);
+    const ids = await nextIds(this.db, [
+        "inter_company_transfers",
+        "transfer_lines",
+        "fifo_consumptions",
+        "stock_ledger_entries",
+        "fifo_layers",
+        "inter_company_ledger_entries",
+        "receivables",
+        "payables",
+      ]),
+      id = ids.inter_company_transfers,
+      t = now(),
+      m: SqlMutation[] = [];
+    let total = 0n,
+      ci = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i]!,
+        a = await this.fifo(data.companyId, data.stockBookId, l.itemId, l.q),
+        lid = ids.transfer_lines + i;
+      total += a.coveredCost;
+      m.push(
+        sql(
+          "INSERT INTO transfer_lines(id,transfer_id,item_id,quantity_milliunits,fifo_value_paise) VALUES(?,?,?,?,?)",
+          lid,
+          id,
+          l.itemId,
+          dbInt(l.q),
+          dbInt(a.coveredCost),
+        ),
+        this.ledger(
+          ids.stock_ledger_entries + i * 2,
+          data,
+          l.itemId,
+          "OUT",
+          "TRANSFER",
+          id,
+          l.q,
+          l.r,
+          dbInt(a.coveredCost),
+          envelope.userId,
+          t,
+        ),
+        this.ledger(
+          ids.stock_ledger_entries + i * 2 + 1,
+          {
+            ...data,
+            companyId: data.toCompanyId,
+            stockBookId: data.toStockBookId,
+          },
+          l.itemId,
+          "IN",
+          "TRANSFER",
+          id,
+          l.q,
+          l.r,
+          dbInt(a.coveredCost),
+          envelope.userId,
+          t,
+        ),
+        this.balance(
+          data.companyId,
+          data.stockBookId,
+          l.itemId,
+          -l.q as any,
+          -a.coveredCost,
+          t,
+        ),
+        this.balance(
+          data.toCompanyId,
+          data.toStockBookId,
+          l.itemId,
+          l.q,
+          dbInt(a.coveredCost),
+          t,
+        ),
+        this.layer(
+          ids.fifo_layers + i,
+          {
+            ...data,
+            companyId: data.toCompanyId,
+            stockBookId: data.toStockBookId,
+          },
+          l.itemId,
+          lid,
+          l.q,
+          l.r,
+          dbInt(a.coveredCost),
+          "TRANSFER_IN",
+          id,
+          envelope.userId,
+          t,
+        ),
+      );
+      for (const c of a.consumptions)
+        if (c.layerId !== null)
+          m.push(
+            sql(
+              "UPDATE fifo_layers SET available_quantity_milliunits=available_quantity_milliunits-?,available_value_paise=available_value_paise-?,status=CASE WHEN available_quantity_milliunits-?=0 THEN 'CONSUMED' ELSE 'PARTIAL' END,updated_at=? WHERE id=? AND available_quantity_milliunits>=?",
+              dbInt(c.quantity),
+              dbInt(c.value),
+              dbInt(c.quantity),
+              t,
+              c.layerId,
+              dbInt(c.quantity),
+            ),
+            sql(
+              "INSERT INTO fifo_consumptions(id,fifo_layer_id,source_type,source_id,source_line_id,quantity_milliunits,rate_ten_thousandths,value_paise,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+              ids.fifo_consumptions + ci++,
+              c.layerId,
+              "TRANSFER",
+              id,
+              lid,
+              dbInt(c.quantity),
+              dbInt(c.rate),
+              dbInt(c.value),
+              t,
+            ),
+          );
+    }
+    m.unshift(
+      sql(
+        "INSERT INTO inter_company_transfers(id,from_company_id,from_stock_book_id,to_company_id,to_stock_book_id,reference_number,transfer_date,reason,remarks,total_fifo_value_paise,mismatch_approved,approval_reason,approved_by_id,approved_at,created_at,updated_at,created_by_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        id,
+        data.companyId,
+        data.stockBookId,
+        data.toCompanyId,
+        data.toStockBookId,
+        data.referenceNumber,
+        data.date,
+        data.reason ?? null,
+        data.remarks ?? null,
+        dbInt(total),
+        data.mismatchApproved ? 1 : 0,
+        data.approvalReason ?? null,
+        data.mismatchApproved ? envelope.userId : null,
+        data.mismatchApproved ? t : null,
+        t,
+        t,
+        envelope.userId,
+      ),
+    );
+    return this.commit(envelope, "InterCompanyTransfer", id, "created", m);
+  }
+
+  private async edit(envelope: AccountingEnvelope): Promise<CommandResult> {
+    const payload = envelope.payload as OpeningCommand;
+    if (!payload.id) throw new Error("Document ID is required.");
+    if (envelope.type === "opening.edit")
+      return this.editOpening(envelope, payload);
+    if (envelope.type === "purchase.edit") {
+      const p = await planPurchaseEdit(
+        this.db,
+        payload as PurchaseCommand,
+        envelope.userId,
+      );
+      return this.commit(
+        envelope,
+        p.type,
+        p.id,
+        "updated",
+        p.mutations,
+        p.before,
+      );
+    }
+    if (envelope.type === "sale.edit") {
+      const p = await planSaleEdit(
+        this.db,
+        payload as SaleCommand,
+        envelope.userId,
+      );
+      return this.commit(
+        envelope,
+        p.type,
+        p.id,
+        "updated",
+        p.mutations,
+        p.before,
+      );
+    }
+    if (envelope.type === "transfer.edit") {
+      const p = await planTransferEdit(
+        this.db,
+        payload as unknown as TransferCommand,
+        envelope.userId,
+      );
+      return this.commit(
+        envelope,
+        p.type,
+        p.id,
+        "updated",
+        p.mutations,
+        p.before,
+      );
+    }
+    if (envelope.type === "payment.edit") {
+      const p = await planReconstructPayment(
+        this.db,
+        envelope.payload as PaymentCommand & { id: number },
+        envelope.userId,
+      );
+      return this.commit(
+        envelope,
+        p.type,
+        p.id,
+        p.status,
+        p.mutations,
+        p.before,
+      );
+    }
+    if (this.openingBalanceKind(envelope.type)) {
+      const p = await planUpdateOpeningBalance(
+        this.db,
+        this.openingBalance(envelope) as OpeningBalanceCommand & { id: number },
+        envelope.userId,
+      );
+      return this.commit(
+        envelope,
+        p.type,
+        p.id,
+        p.status,
+        p.mutations,
+        p.before,
+      );
+    }
+    throw new Error(
+      `${envelope.type} requires reconstruction and is not yet available.`,
+    );
+  }
+
+  private async editOpening(
+    envelope: AccountingEnvelope,
+    data: OpeningCommand,
+  ): Promise<CommandResult> {
+    const existing = await this.db
+      .prepare("SELECT * FROM opening_stocks WHERE id=? AND is_void=0")
+      .bind(data.id)
+      .first<Row>();
+    if (!existing) throw new Error("Opening stock was not found or is void.");
+    const consumed = await this.db
+      .prepare(
+        "SELECT COUNT(*) count FROM fifo_layers WHERE source_type='OPENING_STOCK' AND source_id=? AND available_quantity_milliunits<>original_quantity_milliunits",
+      )
+      .bind(data.id)
+      .first<Row>();
+    if (Number(consumed?.count) > 0)
+      throw new Error(
+        "Opening stock cannot be edited after it has been consumed.",
+      );
+    const oldLedger = await this.db
+      .prepare(
+        "SELECT company_id,stock_book_id,item_id,quantity_in_milliunits,quantity_out_milliunits,value_paise FROM stock_ledger_entries WHERE transaction_type='OPENING_STOCK' AND transaction_id=?",
+      )
+      .bind(data.id)
+      .all<Row>();
+    const lines = this.parseLines(data.lines, false),
+      ids = await nextIds(this.db, [
+        "opening_stock_lines",
+        "fifo_layers",
+        "stock_ledger_entries",
+      ]),
+      t = now(),
+      m: SqlMutation[] = [];
+    await assertOpeningStockContext(this.db, {
+      companyId: data.companyId,
+      stockBookId: data.stockBookId,
+      itemIds: lines.map((line) => line.itemId),
+    });
+    for (const row of oldLedger.results) {
+      const q =
+        BigInt(row.quantity_in_milliunits!) -
+        BigInt(row.quantity_out_milliunits!);
+      const signedValue =
+        BigInt(row.quantity_in_milliunits!) > 0n
+          ? BigInt(row.value_paise!)
+          : -BigInt(row.value_paise!);
+      m.push(
+        this.balance(
+          Number(row.company_id),
+          Number(row.stock_book_id),
+          Number(row.item_id),
+          -q as any,
+          -signedValue,
+          t,
+        ),
+      );
+    }
+    m.push(
+      sql(
+        "DELETE FROM stock_ledger_entries WHERE transaction_type='OPENING_STOCK' AND transaction_id=?",
+        data.id,
+      ),
+      sql(
+        "DELETE FROM fifo_layers WHERE source_type='OPENING_STOCK' AND source_id=?",
+        data.id,
+      ),
+      sql("DELETE FROM opening_stock_lines WHERE opening_stock_id=?", data.id),
+      sql(
+        "UPDATE opening_stocks SET company_id=?,stock_book_id=?,reference_number=?,opening_date=?,remarks=?,updated_at=?,updated_by_id=? WHERE id=?",
+        data.companyId,
+        data.stockBookId,
+        data.referenceNumber,
+        data.date,
+        data.remarks ?? null,
+        t,
+        envelope.userId,
+        data.id,
+      ),
+    );
+    lines.forEach((line, i) => {
+      const lineId = ids.opening_stock_lines + i,
+        value = dbInt(line.totals.subtotal),
+        absolute = line.q < 0n ? -line.q : line.q;
+      m.push(
+        sql(
+          "INSERT INTO opening_stock_lines(id,opening_stock_id,item_id,quantity_milliunits,rate_ten_thousandths,value_paise,remarks) VALUES(?,?,?,?,?,?,?)",
+          lineId,
+          data.id,
+          line.itemId,
+          dbInt(line.q),
+          dbInt(line.r),
+          value,
+          line.remarks ?? null,
+        ),
+      );
+      if (line.q > 0n)
+        m.push(
+          this.layer(
+            ids.fifo_layers + i,
+            data,
+            line.itemId,
+            lineId,
+            line.q,
+            line.r,
+            value,
+            "OPENING_STOCK",
+            data.id!,
+            envelope.userId,
+            t,
+          ),
+        );
+      m.push(
+        this.ledger(
+          ids.stock_ledger_entries + i,
+          data,
+          line.itemId,
+          line.q > 0n ? "IN" : "OUT",
+          "OPENING_STOCK",
+          data.id!,
+          absolute,
+          line.r,
+          Math.abs(value),
+          envelope.userId,
+          t,
+        ),
+        this.balance(
+          data.companyId,
+          data.stockBookId,
+          line.itemId,
+          line.q,
+          line.q > 0n ? Math.abs(value) : -Math.abs(value),
+          t,
+        ),
+      );
+    });
+    return this.commit(
+      envelope,
+      "OpeningStock",
+      data.id!,
+      "updated",
+      m,
+      existing,
+    );
+  }
+
+  private async remove(envelope: AccountingEnvelope) {
+    const data = envelope.payload as VoidCommand;
+    if (envelope.type === "payment.delete") {
+      const p = await planDeletePayment(this.db, data.id);
+      return this.commit(
+        envelope,
+        p.type,
+        p.id,
+        p.status,
+        p.mutations,
+        p.before,
+      );
+    }
+    const balanceKind = this.openingBalanceKind(envelope.type);
+    if (balanceKind && envelope.type.endsWith(".delete")) {
+      const p = await planDeleteOpeningBalance(this.db, balanceKind, data.id);
+      return this.commit(
+        envelope,
+        p.type,
+        p.id,
+        p.status,
+        p.mutations,
+        p.before,
+      );
+    }
+    if (envelope.type === "opening.void")
+      return this.voidOpening(envelope, data);
+    if (envelope.type === "sale.void") return this.voidSale(envelope, data);
+    if (envelope.type === "purchase.void")
+      return this.voidPurchase(envelope, data);
+    if (envelope.type === "transfer.void")
+      return this.voidTransfer(envelope, data);
     throw new Error(`Unsupported reversal command: ${envelope.type}`);
   }
 
-  private async voidOpening(envelope:AccountingEnvelope,data:VoidCommand){const opening=await this.db.prepare("SELECT * FROM opening_stocks WHERE id=? AND is_void=0").bind(data.id).first<Row>();if(!opening)throw new Error("Opening stock was not found or is void.");const consumed=await this.db.prepare("SELECT COUNT(*) count FROM fifo_layers WHERE source_type='OPENING_STOCK' AND source_id=? AND available_quantity_milliunits<>original_quantity_milliunits").bind(data.id).first<Row>();if(Number(consumed?.count)>0)throw new Error("Opening stock cannot be deleted after it has been consumed.");const ledger=await this.db.prepare("SELECT company_id,stock_book_id,item_id,quantity_in_milliunits,quantity_out_milliunits,value_paise FROM stock_ledger_entries WHERE transaction_type='OPENING_STOCK' AND transaction_id=?").bind(data.id).all<Row>();const t=now(),m:SqlMutation[]=[];for(const row of ledger.results){const q=BigInt(row.quantity_in_milliunits!)-BigInt(row.quantity_out_milliunits!),v=BigInt(row.quantity_in_milliunits!)>0n?BigInt(row.value_paise!):-BigInt(row.value_paise!);m.push(this.balance(Number(row.company_id),Number(row.stock_book_id),Number(row.item_id),-q as any,-v,t));}m.push(sql("DELETE FROM stock_ledger_entries WHERE transaction_type='OPENING_STOCK' AND transaction_id=?",data.id),sql("DELETE FROM fifo_layers WHERE source_type='OPENING_STOCK' AND source_id=?",data.id),sql("UPDATE opening_stocks SET is_void=1,reference_number=reference_number||'-VOID-'||id,updated_at=?,updated_by_id=? WHERE id=?",t,envelope.userId,data.id));return this.commit(envelope,"OpeningStock",data.id,"voided",m,opening);}
+  private async voidOpening(envelope: AccountingEnvelope, data: VoidCommand) {
+    const opening = await this.db
+      .prepare("SELECT * FROM opening_stocks WHERE id=? AND is_void=0")
+      .bind(data.id)
+      .first<Row>();
+    if (!opening) throw new Error("Opening stock was not found or is void.");
+    const consumed = await this.db
+      .prepare(
+        "SELECT COUNT(*) count FROM fifo_layers WHERE source_type='OPENING_STOCK' AND source_id=? AND available_quantity_milliunits<>original_quantity_milliunits",
+      )
+      .bind(data.id)
+      .first<Row>();
+    if (Number(consumed?.count) > 0)
+      throw new Error(
+        "Opening stock cannot be deleted after it has been consumed.",
+      );
+    const ledger = await this.db
+      .prepare(
+        "SELECT company_id,stock_book_id,item_id,quantity_in_milliunits,quantity_out_milliunits,value_paise FROM stock_ledger_entries WHERE transaction_type='OPENING_STOCK' AND transaction_id=?",
+      )
+      .bind(data.id)
+      .all<Row>();
+    const t = now(),
+      m: SqlMutation[] = [];
+    for (const row of ledger.results) {
+      const q =
+          BigInt(row.quantity_in_milliunits!) -
+          BigInt(row.quantity_out_milliunits!),
+        v =
+          BigInt(row.quantity_in_milliunits!) > 0n
+            ? BigInt(row.value_paise!)
+            : -BigInt(row.value_paise!);
+      m.push(
+        this.balance(
+          Number(row.company_id),
+          Number(row.stock_book_id),
+          Number(row.item_id),
+          -q as any,
+          -v,
+          t,
+        ),
+      );
+    }
+    m.push(
+      sql(
+        "DELETE FROM stock_ledger_entries WHERE transaction_type='OPENING_STOCK' AND transaction_id=?",
+        data.id,
+      ),
+      sql(
+        "DELETE FROM fifo_layers WHERE source_type='OPENING_STOCK' AND source_id=?",
+        data.id,
+      ),
+      sql(
+        "UPDATE opening_stocks SET is_void=1,reference_number=reference_number||'-VOID-'||id,updated_at=?,updated_by_id=? WHERE id=?",
+        t,
+        envelope.userId,
+        data.id,
+      ),
+    );
+    return this.commit(envelope, "OpeningStock", data.id, "voided", m, opening);
+  }
 
-  private async voidSale(envelope:AccountingEnvelope,data:VoidCommand){const sale=await this.db.prepare("SELECT * FROM sales WHERE id=? AND is_void=0").bind(data.id).first<Row>();if(!sale)throw new Error("Sale was not found or is void.");const allocated=await this.db.prepare("SELECT COUNT(*) count FROM payment_allocations a JOIN receivables r ON r.id=a.target_id AND a.target_type='RECEIVABLE' WHERE r.source_type='SALE' AND r.source_id=?").bind(data.id).first<Row>();if(Number(sale.paid_amount_paise)>0||Number(allocated?.count)>0)throw new Error("Sale cannot be deleted after receipt allocation.");const consumptions=await this.db.prepare("SELECT c.fifo_layer_id,c.quantity_milliunits,c.value_paise FROM fifo_consumptions c WHERE c.source_type='SALE' AND c.source_id=?").bind(data.id).all<Row>();const ledger=await this.db.prepare("SELECT company_id,stock_book_id,item_id,quantity_out_milliunits,value_paise FROM stock_ledger_entries WHERE transaction_type='SALE' AND transaction_id=?").bind(data.id).all<Row>();const t=now(),m:SqlMutation[]=[];for(const c of consumptions.results)m.push(sql("UPDATE fifo_layers SET available_quantity_milliunits=available_quantity_milliunits+?,available_value_paise=available_value_paise+?,status=CASE WHEN available_quantity_milliunits+?=original_quantity_milliunits THEN 'OPEN' ELSE 'PARTIAL' END,updated_at=? WHERE id=?",c.quantity_milliunits,c.value_paise,c.quantity_milliunits,t,c.fifo_layer_id));for(const row of ledger.results)m.push(this.balance(Number(row.company_id),Number(row.stock_book_id),Number(row.item_id),BigInt(row.quantity_out_milliunits!) as any,BigInt(row.value_paise!),t));m.push(sql("DELETE FROM fifo_consumptions WHERE source_type='SALE' AND source_id=?",data.id),sql("DELETE FROM stock_ledger_entries WHERE transaction_type='SALE' AND transaction_id=?",data.id),sql("DELETE FROM receivables WHERE source_type='SALE' AND source_id=?",data.id),sql("UPDATE sales SET is_void=1,invoice_number=invoice_number||'-VOID-'||id,updated_at=?,updated_by_id=? WHERE id=?",t,envelope.userId,data.id));return this.commit(envelope,"Sale",data.id,"voided",m,sale);}
+  private async voidSale(envelope: AccountingEnvelope, data: VoidCommand) {
+    const sale = await this.db
+      .prepare("SELECT * FROM sales WHERE id=? AND is_void=0")
+      .bind(data.id)
+      .first<Row>();
+    if (!sale) throw new Error("Sale was not found or is void.");
+    const allocated = await this.db
+      .prepare(
+        "SELECT COUNT(*) count FROM payment_allocations a JOIN receivables r ON r.id=a.target_id AND a.target_type='RECEIVABLE' WHERE r.source_type='SALE' AND r.source_id=?",
+      )
+      .bind(data.id)
+      .first<Row>();
+    if (Number(sale.paid_amount_paise) > 0 || Number(allocated?.count) > 0)
+      throw new Error("Sale cannot be deleted after receipt allocation.");
+    const consumptions = await this.db
+      .prepare(
+        "SELECT c.fifo_layer_id,c.quantity_milliunits,c.value_paise FROM fifo_consumptions c WHERE c.source_type='SALE' AND c.source_id=?",
+      )
+      .bind(data.id)
+      .all<Row>();
+    const ledger = await this.db
+      .prepare(
+        "SELECT company_id,stock_book_id,item_id,quantity_out_milliunits,value_paise FROM stock_ledger_entries WHERE transaction_type='SALE' AND transaction_id=?",
+      )
+      .bind(data.id)
+      .all<Row>();
+    const t = now(),
+      m: SqlMutation[] = [];
+    for (const c of consumptions.results)
+      m.push(
+        sql(
+          "UPDATE fifo_layers SET available_quantity_milliunits=available_quantity_milliunits+?,available_value_paise=available_value_paise+?,status=CASE WHEN available_quantity_milliunits+?=original_quantity_milliunits THEN 'OPEN' ELSE 'PARTIAL' END,updated_at=? WHERE id=?",
+          c.quantity_milliunits,
+          c.value_paise,
+          c.quantity_milliunits,
+          t,
+          c.fifo_layer_id,
+        ),
+      );
+    for (const row of ledger.results)
+      m.push(
+        this.balance(
+          Number(row.company_id),
+          Number(row.stock_book_id),
+          Number(row.item_id),
+          BigInt(row.quantity_out_milliunits!) as any,
+          BigInt(row.value_paise!),
+          t,
+        ),
+      );
+    m.push(
+      sql(
+        "DELETE FROM fifo_consumptions WHERE source_type='SALE' AND source_id=?",
+        data.id,
+      ),
+      sql(
+        "DELETE FROM stock_ledger_entries WHERE transaction_type='SALE' AND transaction_id=?",
+        data.id,
+      ),
+      sql(
+        "DELETE FROM receivables WHERE source_type='SALE' AND source_id=?",
+        data.id,
+      ),
+      sql(
+        "UPDATE sales SET is_void=1,invoice_number=invoice_number||'-VOID-'||id,updated_at=?,updated_by_id=? WHERE id=?",
+        t,
+        envelope.userId,
+        data.id,
+      ),
+    );
+    return this.commit(envelope, "Sale", data.id, "voided", m, sale);
+  }
 
-  private async voidPurchase(envelope:AccountingEnvelope,data:VoidCommand){const purchase=await this.db.prepare("SELECT * FROM purchases WHERE id=? AND is_void=0").bind(data.id).first<Row>();if(!purchase)throw new Error("Purchase was not found or is void.");const allocated=await this.db.prepare("SELECT COUNT(*) count FROM payment_allocations a JOIN payables p ON p.id=a.target_id AND a.target_type='PAYABLE' WHERE p.source_type='PURCHASE' AND p.source_id=?").bind(data.id).first<Row>();if(Number(purchase.paid_amount_paise)>0||Number(allocated?.count)>0)throw new Error("Purchase cannot be deleted after payment allocation.");const consumed=await this.db.prepare("SELECT COUNT(*) count FROM fifo_layers WHERE source_type='PURCHASE' AND source_id=? AND available_quantity_milliunits<>original_quantity_milliunits").bind(data.id).first<Row>();if(Number(consumed?.count)>0)throw new Error("Purchase cannot be deleted after its stock has been consumed.");const ledger=await this.db.prepare("SELECT company_id,stock_book_id,item_id,quantity_in_milliunits,value_paise FROM stock_ledger_entries WHERE transaction_type='PURCHASE' AND transaction_id=?").bind(data.id).all<Row>();const t=now(),m:SqlMutation[]=[];for(const row of ledger.results)m.push(this.balance(Number(row.company_id),Number(row.stock_book_id),Number(row.item_id),-BigInt(row.quantity_in_milliunits!) as any,-BigInt(row.value_paise!),t));m.push(sql("DELETE FROM payables WHERE source_type='PURCHASE' AND source_id=?",data.id),sql("DELETE FROM stock_ledger_entries WHERE transaction_type='PURCHASE' AND transaction_id=?",data.id),sql("DELETE FROM fifo_layers WHERE source_type='PURCHASE' AND source_id=?",data.id),sql("UPDATE purchases SET is_void=1,bill_number=bill_number||'-VOID-'||id,updated_at=?,updated_by_id=? WHERE id=?",t,envelope.userId,data.id));return this.commit(envelope,"Purchase",data.id,"voided",m,purchase);}
+  private async voidPurchase(envelope: AccountingEnvelope, data: VoidCommand) {
+    const purchase = await this.db
+      .prepare("SELECT * FROM purchases WHERE id=? AND is_void=0")
+      .bind(data.id)
+      .first<Row>();
+    if (!purchase) throw new Error("Purchase was not found or is void.");
+    const allocated = await this.db
+      .prepare(
+        "SELECT COUNT(*) count FROM payment_allocations a JOIN payables p ON p.id=a.target_id AND a.target_type='PAYABLE' WHERE p.source_type='PURCHASE' AND p.source_id=?",
+      )
+      .bind(data.id)
+      .first<Row>();
+    if (Number(purchase.paid_amount_paise) > 0 || Number(allocated?.count) > 0)
+      throw new Error("Purchase cannot be deleted after payment allocation.");
+    const consumed = await this.db
+      .prepare(
+        "SELECT COUNT(*) count FROM fifo_layers WHERE source_type='PURCHASE' AND source_id=? AND available_quantity_milliunits<>original_quantity_milliunits",
+      )
+      .bind(data.id)
+      .first<Row>();
+    if (Number(consumed?.count) > 0)
+      throw new Error(
+        "Purchase cannot be deleted after its stock has been consumed.",
+      );
+    const ledger = await this.db
+      .prepare(
+        "SELECT company_id,stock_book_id,item_id,quantity_in_milliunits,value_paise FROM stock_ledger_entries WHERE transaction_type='PURCHASE' AND transaction_id=?",
+      )
+      .bind(data.id)
+      .all<Row>();
+    const t = now(),
+      m: SqlMutation[] = [];
+    for (const row of ledger.results)
+      m.push(
+        this.balance(
+          Number(row.company_id),
+          Number(row.stock_book_id),
+          Number(row.item_id),
+          -BigInt(row.quantity_in_milliunits!) as any,
+          -BigInt(row.value_paise!),
+          t,
+        ),
+      );
+    m.push(
+      sql(
+        "DELETE FROM payables WHERE source_type='PURCHASE' AND source_id=?",
+        data.id,
+      ),
+      sql(
+        "DELETE FROM stock_ledger_entries WHERE transaction_type='PURCHASE' AND transaction_id=?",
+        data.id,
+      ),
+      sql(
+        "DELETE FROM fifo_layers WHERE source_type='PURCHASE' AND source_id=?",
+        data.id,
+      ),
+      sql(
+        "UPDATE purchases SET is_void=1,bill_number=bill_number||'-VOID-'||id,updated_at=?,updated_by_id=? WHERE id=?",
+        t,
+        envelope.userId,
+        data.id,
+      ),
+    );
+    return this.commit(envelope, "Purchase", data.id, "voided", m, purchase);
+  }
 
-  private async voidTransfer(envelope:AccountingEnvelope,data:VoidCommand){const transfer=await this.db.prepare("SELECT * FROM inter_company_transfers WHERE id=? AND is_void=0").bind(data.id).first<Row>();if(!transfer)throw new Error("Transfer was not found or is void.");const entries=await this.db.prepare("SELECT * FROM inter_company_ledger_entries WHERE transfer_id=? ORDER BY id").bind(data.id).all<Row>();const returned=entries.results.some(r=>r.status==="RETURNED");if(!returned){const later=await this.db.prepare("SELECT COUNT(*) count FROM inter_company_ledger_entries r JOIN inter_company_transfers t ON t.id=r.transfer_id JOIN inter_company_ledger_entries issued ON issued.item_id=r.item_id WHERE issued.transfer_id=? AND r.status='RETURNED' AND r.stock_owner_company_id=issued.stock_owner_company_id AND r.stock_user_company_id=issued.stock_user_company_id AND (t.transfer_date>? OR (t.transfer_date=? AND t.id>?)) AND t.is_void=0").bind(data.id,transfer.transfer_date,transfer.transfer_date,data.id).first<Row>();if(Number(later?.count)>0)throw new Error("Transfer cannot be deleted after stock has been returned against it.");}else{const consumed=await this.db.prepare("SELECT COUNT(*) count FROM fifo_layers WHERE source_type='TRANSFER_RETURN' AND source_id=? AND available_quantity_milliunits<>original_quantity_milliunits").bind(data.id).first<Row>();if(Number(consumed?.count)>0)throw new Error("Return cannot be deleted after returned stock has been consumed.");}const ledger=await this.db.prepare("SELECT company_id,stock_book_id,item_id,quantity_in_milliunits,quantity_out_milliunits,value_paise FROM stock_ledger_entries WHERE transaction_type='TRANSFER' AND transaction_id=?").bind(data.id).all<Row>();const consumptions=await this.db.prepare("SELECT fifo_layer_id,quantity_milliunits,value_paise FROM fifo_consumptions WHERE source_type='TRANSFER' AND source_id=?").bind(data.id).all<Row>();const t=now(),m:SqlMutation[]=[];for(const c of consumptions.results)m.push(sql("UPDATE fifo_layers SET available_quantity_milliunits=available_quantity_milliunits+?,available_value_paise=available_value_paise+?,status=CASE WHEN available_quantity_milliunits+?=original_quantity_milliunits THEN 'OPEN' ELSE 'PARTIAL' END,updated_at=? WHERE id=?",c.quantity_milliunits,c.value_paise,c.quantity_milliunits,t,c.fifo_layer_id));for(const r of ledger.results){const q=BigInt(r.quantity_in_milliunits!)-BigInt(r.quantity_out_milliunits!),v=BigInt(r.quantity_in_milliunits!)>0n?BigInt(r.value_paise!):-BigInt(r.value_paise!);m.push(this.balance(Number(r.company_id),Number(r.stock_book_id),Number(r.item_id),-q as any,-v,t));}m.push(sql("DELETE FROM fifo_consumptions WHERE source_type='TRANSFER' AND source_id=?",data.id),sql("DELETE FROM fifo_layers WHERE source_type='TRANSFER_RETURN' AND source_id=?",data.id),sql("DELETE FROM stock_ledger_entries WHERE transaction_type='TRANSFER' AND transaction_id=?",data.id),sql("DELETE FROM inter_company_ledger_entries WHERE transfer_id=?",data.id),sql("UPDATE inter_company_transfers SET is_void=1,reference_number=reference_number||'-VOID-'||id,updated_at=?,updated_by_id=? WHERE id=?",t,envelope.userId,data.id));return this.commit(envelope,"InterCompanyTransfer",data.id,"voided",m,transfer);}
+  private async voidTransfer(envelope: AccountingEnvelope, data: VoidCommand) {
+    const transfer = await this.db
+      .prepare("SELECT * FROM inter_company_transfers WHERE id=? AND is_void=0")
+      .bind(data.id)
+      .first<Row>();
+    if (!transfer) throw new Error("Transfer was not found or is void.");
+    const entries = await this.db
+      .prepare(
+        "SELECT * FROM inter_company_ledger_entries WHERE transfer_id=? ORDER BY id",
+      )
+      .bind(data.id)
+      .all<Row>();
+    if (entries.results.some((entry) => BigInt(entry.settled_amount_paise ?? 0) > 0n))
+      throw new Error(
+        "Transfer cannot be deleted after its inter-company amount has been settled.",
+      );
+    const returned = entries.results.some((r) => r.status === "RETURNED");
+    if (!returned) {
+      const later = await this.db
+        .prepare(
+          "SELECT COUNT(*) count FROM inter_company_ledger_entries r JOIN inter_company_transfers t ON t.id=r.transfer_id JOIN inter_company_ledger_entries issued ON issued.item_id=r.item_id WHERE issued.transfer_id=? AND r.status='RETURNED' AND r.stock_owner_company_id=issued.stock_owner_company_id AND r.stock_user_company_id=issued.stock_user_company_id AND (t.transfer_date>? OR (t.transfer_date=? AND t.id>?)) AND t.is_void=0",
+        )
+        .bind(data.id, transfer.transfer_date, transfer.transfer_date, data.id)
+        .first<Row>();
+      if (Number(later?.count) > 0)
+        throw new Error(
+          "Transfer cannot be deleted after stock has been returned against it.",
+        );
+    } else {
+      const consumed = await this.db
+        .prepare(
+          "SELECT COUNT(*) count FROM fifo_layers WHERE source_type='TRANSFER_RETURN' AND source_id=? AND available_quantity_milliunits<>original_quantity_milliunits",
+        )
+        .bind(data.id)
+        .first<Row>();
+      if (Number(consumed?.count) > 0)
+        throw new Error(
+          "Return cannot be deleted after returned stock has been consumed.",
+        );
+    }
+    const ledger = await this.db
+      .prepare(
+        "SELECT company_id,stock_book_id,item_id,quantity_in_milliunits,quantity_out_milliunits,value_paise FROM stock_ledger_entries WHERE transaction_type='TRANSFER' AND transaction_id=?",
+      )
+      .bind(data.id)
+      .all<Row>();
+    const consumptions = await this.db
+      .prepare(
+        "SELECT fifo_layer_id,quantity_milliunits,value_paise FROM fifo_consumptions WHERE source_type='TRANSFER' AND source_id=?",
+      )
+      .bind(data.id)
+      .all<Row>();
+    const t = now(),
+      m: SqlMutation[] = [];
+    for (const c of consumptions.results)
+      m.push(
+        sql(
+          "UPDATE fifo_layers SET available_quantity_milliunits=available_quantity_milliunits+?,available_value_paise=available_value_paise+?,status=CASE WHEN available_quantity_milliunits+?=original_quantity_milliunits THEN 'OPEN' ELSE 'PARTIAL' END,updated_at=? WHERE id=?",
+          c.quantity_milliunits,
+          c.value_paise,
+          c.quantity_milliunits,
+          t,
+          c.fifo_layer_id,
+        ),
+      );
+    for (const r of ledger.results) {
+      const q =
+          BigInt(r.quantity_in_milliunits!) -
+          BigInt(r.quantity_out_milliunits!),
+        v =
+          BigInt(r.quantity_in_milliunits!) > 0n
+            ? BigInt(r.value_paise!)
+            : -BigInt(r.value_paise!);
+      m.push(
+        this.balance(
+          Number(r.company_id),
+          Number(r.stock_book_id),
+          Number(r.item_id),
+          -q as any,
+          -v,
+          t,
+        ),
+      );
+    }
+    m.push(
+      sql(
+        "DELETE FROM fifo_consumptions WHERE source_type='TRANSFER' AND source_id=?",
+        data.id,
+      ),
+      sql(
+        "DELETE FROM fifo_layers WHERE source_type='TRANSFER_RETURN' AND source_id=?",
+        data.id,
+      ),
+      sql(
+        "DELETE FROM stock_ledger_entries WHERE transaction_type='TRANSFER' AND transaction_id=?",
+        data.id,
+      ),
+      sql(
+        "DELETE FROM inter_company_ledger_entries WHERE transfer_id=?",
+        data.id,
+      ),
+      sql(
+        "UPDATE inter_company_transfers SET is_void=1,reference_number=reference_number||'-VOID-'||id,updated_at=?,updated_by_id=? WHERE id=?",
+        t,
+        envelope.userId,
+        data.id,
+      ),
+    );
+    return this.commit(
+      envelope,
+      "InterCompanyTransfer",
+      data.id,
+      "voided",
+      m,
+      transfer,
+    );
+  }
 
-  private layer(id:number,data:{companyId:number;stockBookId:number;referenceNumber:string;date:string},itemId:number,lineId:number,q:any,r:any,value:number,type:string,sourceId:number,user:number,t:string){return sql("INSERT INTO fifo_layers(id,company_id,stock_book_id,item_id,source_type,source_id,source_line_id,source_reference,source_date,original_quantity_milliunits,available_quantity_milliunits,unit_cost_ten_thousandths,original_value_paise,available_value_paise,status,created_at,updated_at,created_by_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",id,data.companyId,data.stockBookId,itemId,type,sourceId,lineId,data.referenceNumber,data.date,dbInt(q),dbInt(q),dbInt(r),value,value,"OPEN",t,t,user);}
-  private ledger(id:number,data:{companyId:number;stockBookId:number;referenceNumber:string;date:string},item:number,movement:string,type:string,sourceId:number,q:any,r:any,value:number,user:number,t:string){return sql("INSERT INTO stock_ledger_entries(id,company_id,stock_book_id,item_id,entry_date,movement_type,transaction_type,transaction_id,reference_number,quantity_in_milliunits,quantity_out_milliunits,rate_ten_thousandths,value_paise,created_at,created_by_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",id,data.companyId,data.stockBookId,item,data.date,movement,type,sourceId,data.referenceNumber,movement==="IN"?dbInt(q):0,movement==="OUT"?dbInt(q):0,dbInt(r),value,t,user);}
-  private balance(company:number,book:number,item:number,q:any,value:any,t:string){return sql("INSERT INTO inventory_balances(company_id,stock_book_id,item_id,quantity_milliunits,ledger_value_paise,version,updated_at) VALUES(?,?,?,?,?,1,?) ON CONFLICT(company_id,stock_book_id,item_id) DO UPDATE SET quantity_milliunits=quantity_milliunits+excluded.quantity_milliunits,ledger_value_paise=ledger_value_paise+excluded.ledger_value_paise,version=version+1,updated_at=excluded.updated_at",company,book,item,dbInt(q),typeof value==="bigint"?dbInt(value):value,t);}
-  private openingBalanceKind(type:string):OpeningBalanceKind|null{if(type.startsWith("opening_receivable."))return "receivable";if(type.startsWith("opening_payable."))return "payable";if(type.startsWith("opening_advance_received."))return "advance-received";if(type.startsWith("opening_advance_paid."))return "advance-paid";return null;}
-  private openingBalance(envelope:AccountingEnvelope):OpeningBalanceCommand{const kind=this.openingBalanceKind(envelope.type);if(!kind)throw new Error("Unsupported opening balance command.");return {...(envelope.payload as unknown as Omit<OpeningBalanceCommand,"kind">),kind};}
+  private layer(
+    id: number,
+    data: {
+      companyId: number;
+      stockBookId: number;
+      referenceNumber: string;
+      date: string;
+    },
+    itemId: number,
+    lineId: number,
+    q: any,
+    r: any,
+    value: number,
+    type: string,
+    sourceId: number,
+    user: number,
+    t: string,
+  ) {
+    return sql(
+      "INSERT INTO fifo_layers(id,company_id,stock_book_id,item_id,source_type,source_id,source_line_id,source_reference,source_date,original_quantity_milliunits,available_quantity_milliunits,unit_cost_ten_thousandths,original_value_paise,available_value_paise,status,created_at,updated_at,created_by_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+      id,
+      data.companyId,
+      data.stockBookId,
+      itemId,
+      type,
+      sourceId,
+      lineId,
+      data.referenceNumber,
+      data.date,
+      dbInt(q),
+      dbInt(q),
+      dbInt(r),
+      value,
+      value,
+      "OPEN",
+      t,
+      t,
+      user,
+    );
+  }
+  private ledger(
+    id: number,
+    data: {
+      companyId: number;
+      stockBookId: number;
+      referenceNumber: string;
+      date: string;
+    },
+    item: number,
+    movement: string,
+    type: string,
+    sourceId: number,
+    q: any,
+    r: any,
+    value: number,
+    user: number,
+    t: string,
+  ) {
+    return sql(
+      "INSERT INTO stock_ledger_entries(id,company_id,stock_book_id,item_id,entry_date,movement_type,transaction_type,transaction_id,reference_number,quantity_in_milliunits,quantity_out_milliunits,rate_ten_thousandths,value_paise,created_at,created_by_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+      id,
+      data.companyId,
+      data.stockBookId,
+      item,
+      data.date,
+      movement,
+      type,
+      sourceId,
+      data.referenceNumber,
+      movement === "IN" ? dbInt(q) : 0,
+      movement === "OUT" ? dbInt(q) : 0,
+      dbInt(r),
+      value,
+      t,
+      user,
+    );
+  }
+  private balance(
+    company: number,
+    book: number,
+    item: number,
+    q: any,
+    value: any,
+    t: string,
+  ) {
+    return sql(
+      "INSERT INTO inventory_balances(company_id,stock_book_id,item_id,quantity_milliunits,ledger_value_paise,version,updated_at) VALUES(?,?,?,?,?,1,?) ON CONFLICT(company_id,stock_book_id,item_id) DO UPDATE SET quantity_milliunits=quantity_milliunits+excluded.quantity_milliunits,ledger_value_paise=ledger_value_paise+excluded.ledger_value_paise,version=version+1,updated_at=excluded.updated_at",
+      company,
+      book,
+      item,
+      dbInt(q),
+      typeof value === "bigint" ? dbInt(value) : value,
+      t,
+    );
+  }
+  private openingBalanceKind(type: string): OpeningBalanceKind | null {
+    if (type.startsWith("opening_receivable.")) return "receivable";
+    if (type.startsWith("opening_payable.")) return "payable";
+    if (type.startsWith("opening_advance_received.")) return "advance-received";
+    if (type.startsWith("opening_advance_paid.")) return "advance-paid";
+    return null;
+  }
+  private openingBalance(envelope: AccountingEnvelope): OpeningBalanceCommand {
+    const kind = this.openingBalanceKind(envelope.type);
+    if (!kind) throw new Error("Unsupported opening balance command.");
+    return {
+      ...(envelope.payload as unknown as Omit<OpeningBalanceCommand, "kind">),
+      kind,
+    };
+  }
 }

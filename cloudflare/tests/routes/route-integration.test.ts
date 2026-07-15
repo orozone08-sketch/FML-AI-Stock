@@ -36,11 +36,13 @@ class RouteDb {
   }
   batch<T>(statements: Statement[]) {
     const results = statements.map((statement) => {
-      if (statement.query.includes("SUM(quantity_milliunits)")) return { results: [{ quantity: -2_000 }] };
-      if (statement.query.includes("FROM receivables")) return { results: [{ total: 12_500, count: 1 }] };
-      if (statement.query.includes("FROM payables")) return { results: [{ total: 5_000, count: 1 }] };
-      if (statement.query.includes("COUNT(*) count FROM sales")) return { results: [{ count: 3 }] };
-      if (statement.query.includes("COUNT(*) count FROM purchases")) return { results: [{ count: 2 }] };
+      if (statement.query.includes("SUM(quantity_milliunits)")) return { results: [{ quantity: -2_000, value: 25_000 }] };
+      if (statement.query.includes("FROM receivables")) return { results: [{ total: 12_500, count: 1, overdue: 1 }] };
+      if (statement.query.includes("FROM payables")) return { results: [{ total: 5_000, count: 1, overdue: 0 }] };
+      if (statement.query.includes("FROM sales WHERE")) return { results: [{ count: 3, total: 30_000, profit: 7_000 }] };
+      if (statement.query.includes("FROM purchases WHERE")) return { results: [{ count: 2, total: 20_000 }] };
+      if (statement.query.includes("JOIN items i") && statement.query.includes("minimum_stock")) return { results: [{ count: 4 }] };
+      if (statement.query.includes("FROM inter_company_ledger_entries")) return { results: [{ total: 9_000 }] };
       if (statement.query.startsWith("SELECT id,code,name,contact_person")) return { results: [{ id: 10, code: "C-10", name: "Scoped Customer" }] };
       return { results: this.all(statement.query, statement.params) };
     });
@@ -58,7 +60,6 @@ function environment(db: RouteDb): Env {
     SITE_URL: "https://example.test",
     SESSION_HMAC_KEY: "session-secret",
     CSRF_HMAC_KEY: "csrf-secret",
-    REGISTRATION_INVITE_KEY: "invite-secret",
   };
 }
 
@@ -87,10 +88,33 @@ describe("authenticated route integration", () => {
   it("renders a company-scoped dashboard and binds the assigned company to every KPI", async () => {
     const response = await authenticated("/dashboard");
     expect(response.status).toBe(200);
-    expect(await response.text()).toContain("<strong>-2</strong>");
-    const kpis = db.statements.filter((statement) => /inventory_balances|receivables|payables|COUNT\(\*\) count FROM (sales|purchases)/.test(statement.query));
-    expect(kpis).toHaveLength(5);
-    expect(kpis.every((statement) => statement.query.includes("company_id=?") && statement.params[0] === 1)).toBe(true);
+    const html=await response.text();
+    expect(html).toContain("<strong>-2</strong>");
+    const kpis = db.statements.filter((statement) => /inventory_balances|receivables|payables|FROM sales WHERE|FROM purchases WHERE|inter_company_ledger_entries/.test(statement.query));
+    // Seven headline metrics plus period trend and four bounded critical-detail
+    // queries (receivables, payables, low stock, inter-company).
+    expect(kpis).toHaveLength(12);
+    expect(kpis.every((statement) => statement.params.includes(1))).toBe(true);
+    expect(html).toContain("ledger value");
+    expect(html).toContain("Period trend");
+    expect(html).toContain("Critical customer dues");
+    expect(html).toContain("data-floating-tools");
+    expect(html).toContain('data-calendar-url="/dashboard/calendar-events"');
+  });
+
+  it("rejects invalid dashboard and calendar ranges before business queries",async()=>{
+    expect((await authenticated("/dashboard?from=2026-02-30")).status).toBe(400);
+    expect((await authenticated("/dashboard/calendar-events?start=bad&end=2026-07-01")).status).toBe(400);
+  });
+
+  it("serves real report export formats with their declared content types",async()=>{
+    db.role="ADMIN";
+    const xlsx=await authenticated("/reports/sales?format=xlsx");
+    expect(xlsx.status).toBe(200);expect(xlsx.headers.get("content-type")).toContain("spreadsheetml");
+    expect(Array.from(new Uint8Array(await xlsx.arrayBuffer()).slice(0,4))).toEqual([0x50,0x4b,0x03,0x04]);
+    const pdf=await authenticated("/reports/sales?format=pdf");
+    expect(pdf.status).toBe(200);expect(pdf.headers.get("content-type")).toContain("application/pdf");
+    expect(new TextDecoder().decode((await pdf.arrayBuffer()).slice(0,8))).toBe("%PDF-1.4");
   });
 
   it("scopes stock-book HTML and denies create UI when the role has view-only access", async () => {
@@ -106,19 +130,23 @@ describe("authenticated route integration", () => {
     expect(await create.text()).toBe("Forbidden");
   });
 
-  it("rejects a customer API query outside the active company before issuing profile queries", async () => {
+  it("ignores a customer company selector when the login is fixed to an active company", async () => {
     const response = await authenticated("/customers/10?company_id=2");
-    expect(response.status).toBe(404);
-    expect(db.statements.some((statement) => statement.query.includes("FROM receivables r WHERE r.customer_id"))).toBe(false);
+    expect(response.status).toBe(200);
+    const query = db.statements.find((statement) => statement.query.includes("FROM receivables r WHERE r.customer_id"));
+    expect(query?.params.slice(0, 2)).toEqual([10, 1]);
   });
 
   it("binds customer stock JSON to both the requested customer and active company", async () => {
     const response = await authenticated("/customers/10/stock");
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual([]);
+    expect(await response.json()).toEqual({
+      summary: { stock_given: "0", stock_received_back: "0", pending_stock: "0" },
+      stock: [],
+    });
     const query = db.statements.find((statement) => statement.query.includes("FROM sale_lines sl"));
     expect(query?.query).toContain("s.company_id=?");
-    expect(query?.params).toEqual([10, 1]);
+    expect(query?.params.slice(0, 2)).toEqual([10, 1]);
   });
 
   it("blocks state-changing routes at CSRF middleware before permission or D1 writes", async () => {

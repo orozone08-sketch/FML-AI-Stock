@@ -27,4 +27,13 @@ for (let index = 0; index < queries.length; index += 8) {
   failures.push(...payload.flatMap((entry) => entry.results ?? []).filter((row) => Number(row.actual) !== Number(row.expected)));
 }
 if (failures.length) { console.error(JSON.stringify(failures,null,2)); process.exit(2); }
+const snapshotId = String(manifest.snapshot_id).replaceAll("'", "''");
+const update = spawnSync(executable, [wrangler,'d1','execute','fastockflow-db',remote ? '--remote' : '--local','--command',
+  `UPDATE migration_manifest SET verified_at=CURRENT_TIMESTAMP,verification_status='VERIFIED' WHERE source_snapshot_id='${snapshotId}' AND imported_at IS NOT NULL;
+   SELECT changes() updated;`], { encoding: 'utf8' });
+if (update.status !== 0) { process.stderr.write(update.stderr ?? String(update.error ?? 'Wrangler failed')); process.exit(update.status ?? 1); }
+const updatedMatch = /\[\s*\{/.exec(update.stdout);
+if (!updatedMatch) throw new Error(`Wrangler returned no verification update payload: ${update.stdout.slice(0,200)}`);
+const updatedPayload = JSON.parse(update.stdout.slice(updatedMatch.index));
+if (Number(updatedPayload?.at(-1)?.results?.[0]?.updated ?? 0) !== 1) throw new Error(`Snapshot ${manifest.snapshot_id} was reconciled but no matching imported manifest row was marked verified`);
 console.log(`Verified ${queries.length} reconciliation controls for snapshot ${manifest.snapshot_id}`);

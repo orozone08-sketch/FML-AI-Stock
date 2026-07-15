@@ -29,16 +29,38 @@ const run = (commandArgs, capture = false) => {
   if (result.status !== 0) process.exit(result.status ?? 1);
   return result.stdout ?? '';
 };
+const literal = (value) => `'${String(value).replaceAll("'", "''")}'`;
+const wranglerJson = (output) => {
+  const match = /\[\s*\{/.exec(output);
+  return match ? JSON.parse(output.slice(match.index)) : [];
+};
 run(['wrangler','d1','migrations','apply','fastockflow-db', remote ? '--remote' : '--local']);
 run(['wrangler','d1','execute','fastockflow-db',remote ? '--remote' : '--local','--command',
   'CREATE TABLE IF NOT EXISTS _snapshot_import_parts (snapshot_id TEXT NOT NULL, part_file TEXT NOT NULL, imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (snapshot_id, part_file))']);
+const checkpointOutput = run(['wrangler','d1','execute','fastockflow-db',remote ? '--remote' : '--local','--json','--command',
+  `SELECT COUNT(*) checkpoints FROM _snapshot_import_parts WHERE snapshot_id=${literal(manifest.snapshot_id)}`], true);
+const checkpointPayload = wranglerJson(checkpointOutput);
+if (Number(checkpointPayload?.[0]?.results?.[0]?.checkpoints ?? 0) === 0) {
+  const tables = Object.keys(manifest.tables ?? {});
+  const occupied = [];
+  for (let index = 0; index < tables.length; index += 8) {
+    const batch = tables.slice(index, index + 8);
+    const output = run(['wrangler','d1','execute','fastockflow-db',remote ? '--remote' : '--local','--json','--command',
+      batch.map((table) => `SELECT ${literal(table)} table_name,COUNT(*) row_count FROM ${table}`).join(';')], true);
+    const payload = wranglerJson(output);
+    occupied.push(...payload.flatMap((entry) => entry.results ?? []).filter((row) => Number(row.row_count) > 0));
+  }
+  if (occupied.length) {
+    const summary = occupied.map((row) => `${row.table_name}=${row.row_count}`).join(', ');
+    throw new Error(`Snapshot destination is not empty (${summary}). Restore/reset to a clean destination before the first import; for local verification use node scripts/reset-local.mjs --empty.`);
+  }
+}
 const tempDirectory = await mkdtemp(resolve(tmpdir(), 'fastockflow-import-'));
 try {
   for (const part of manifest.parts) {
     const checkSql = `SELECT COUNT(*) AS imported FROM _snapshot_import_parts WHERE snapshot_id='${manifest.snapshot_id}' AND part_file='${part.file}'`;
     const output = run(['wrangler','d1','execute','fastockflow-db',remote ? '--remote' : '--local','--json','--command',checkSql], true);
-    const start = output.indexOf('[{');
-    const payload = start >= 0 ? JSON.parse(output.slice(start)) : [];
+    const payload = wranglerJson(output);
     if (Number(payload?.[0]?.results?.[0]?.imported) === 1) {
       console.log(`Skipping checkpointed part ${part.file}`);
       continue;
@@ -56,7 +78,25 @@ try {
     await writeFile(checkpointedPath, sql);
     run(['wrangler','d1','execute','fastockflow-db',remote ? '--remote' : '--local','--file',checkpointedPath]);
   }
+  run(['wrangler','d1','execute','fastockflow-db',remote ? '--remote' : '--local','--file',resolve('scripts/backfill-audit-company-scope.sql')]);
   run(['wrangler','d1','execute','fastockflow-db',remote ? '--remote' : '--local','--file',resolve('scripts/rebuild-inventory-balances.sql')]);
+  const snapshotId = literal(manifest.snapshot_id);
+  const databaseDigest = literal(manifest.source_database_sha256 ?? manifest.source_database_digest ?? 'unknown');
+  const snapshotAt = literal(manifest.snapshot_at);
+  const tableCounts = literal(JSON.stringify(manifest.tables ?? {}));
+  const controlTotals = literal(JSON.stringify(manifest.control_totals ?? {}));
+  run(['wrangler','d1','execute','fastockflow-db',remote ? '--remote' : '--local','--command',
+    `INSERT INTO migration_manifest(source_snapshot_id,source_database_digest,snapshot_at,table_counts_json,control_totals_json,imported_at,verification_status)
+     SELECT ${snapshotId},${databaseDigest},${snapshotAt},${tableCounts},${controlTotals},CURRENT_TIMESTAMP,'PENDING'
+     WHERE NOT EXISTS(SELECT 1 FROM migration_manifest WHERE source_snapshot_id=${snapshotId});
+     UPDATE migration_manifest SET imported_at=CURRENT_TIMESTAMP,verified_at=NULL,verification_status='PENDING'
+     WHERE source_snapshot_id=${snapshotId} AND source_database_digest=${databaseDigest}
+       AND table_counts_json=${tableCounts} AND control_totals_json=${controlTotals};`]);
+  const recorded = run(['wrangler','d1','execute','fastockflow-db',remote ? '--remote' : '--local','--json','--command',
+    `SELECT COUNT(*) matched FROM migration_manifest WHERE source_snapshot_id=${snapshotId} AND source_database_digest=${databaseDigest}
+       AND table_counts_json=${tableCounts} AND control_totals_json=${controlTotals} AND verification_status='PENDING'`], true);
+  const recordedPayload = wranglerJson(recorded);
+  if (Number(recordedPayload?.[0]?.results?.[0]?.matched) !== 1) throw new Error(`Snapshot ${manifest.snapshot_id} could not be recorded as a pending migration manifest`);
 } finally {
   await rm(tempDirectory, { recursive: true, force: true });
 }

@@ -9,6 +9,8 @@ class Statement {
   bind(...values: unknown[]) { this.params = values; return this; }
   async run() {
     this.db.runs.push(this);
+    if (this.query.startsWith("UPDATE r2_objects SET lifecycle_state='ORPHANED'")) return { success: true, meta: { changes: this.db.r2ClaimChanges } };
+    if (this.query.startsWith("DELETE FROM r2_objects")) return { success: true, meta: { changes: this.db.r2MetadataDeleteChanges } };
     const table = /DELETE FROM (\w+)/.exec(this.query)?.[1];
     return { success: true, meta: { changes: table ? (this.db.deleteChanges[table] ?? 0) : 0 } };
   }
@@ -31,6 +33,8 @@ class FakeDb {
   r2Rows: DbRow[] = [];
   balanceRows: DbRow[] = [];
   ledgerRows: DbRow[] = [];
+  r2ClaimChanges = 1;
+  r2MetadataDeleteChanges = 1;
   runs: Statement[] = [];
   firsts: Statement[] = [];
   alls: Statement[] = [];
@@ -47,17 +51,17 @@ const envFor = (db: FakeDb, deleted: string[]): Env => ({
 describe("scheduled maintenance", () => {
   it("bounds retention, cleans aged R2 metadata, and raises one reconciliation alert", async () => {
     const db = new FakeDb(), deleted: string[] = [];
-    db.r2Rows = [{ id: 8, object_key: "companies/1/orphan" }];
+    db.r2Rows = [{ id: 8, object_key: "companies/1/orphan", lifecycle_state: "ORPHANED" }];
     db.balanceRows = [{ company_id: 1, stock_book_id: 2, item_id: 3, quantity_milliunits: 900, ledger_value_paise: 500, expected_quantity_milliunits: 1000, expected_ledger_value_paise: 500, alert_id: null }];
     const result = await runScheduledMaintenance(envFor(db, deleted), new Date("2026-07-15T12:00:00.000Z"));
 
     expect(result).toEqual({ deleted: { sessions: 4, loginAttempts: 7, idempotencyKeys: 3, r2Objects: 1 }, reconciliation: { phase: "BALANCES", checked: 1, mismatches: 1, reset: false } });
     expect(deleted).toEqual(["companies/1/orphan"]);
-    expect(db.runs.map((s) => s.params.at(-1))).toEqual([MAINTENANCE_LIMITS.sessions, MAINTENANCE_LIMITS.loginAttempts, MAINTENANCE_LIMITS.idempotencyKeys]);
+    expect(db.runs.filter((s) => /^DELETE FROM (sessions|login_attempts|idempotency_keys)/.test(s.query)).map((s) => s.params.at(-1))).toEqual([MAINTENANCE_LIMITS.sessions, MAINTENANCE_LIMITS.loginAttempts, MAINTENANCE_LIMITS.idempotencyKeys]);
     expect(db.runs[1]?.params[0]).toBe("2026-06-15T12:00:00.000Z");
     expect(db.alls.find((s) => s.query.includes("FROM r2_objects"))?.params).toEqual(["2026-07-14T12:00:00.000Z", MAINTENANCE_LIMITS.r2Objects]);
     const batchedSql = db.batches.flat().map((s) => s.query).join("\n");
-    expect(batchedSql).toContain("DELETE FROM r2_objects");
+    expect(db.runs.some((s) => s.query === "DELETE FROM r2_objects WHERE id=? AND lifecycle_state='ORPHANED'" && s.params[0] === 8)).toBe(true);
     expect(batchedSql).toContain("INSERT INTO alerts");
     expect(batchedSql).toContain("cursor_company_id=excluded.cursor_company_id");
   });
@@ -82,6 +86,21 @@ describe("scheduled maintenance", () => {
     expect(result.reconciliation.mismatches).toBe(0);
     const resolution = db.batches.flat().find((s) => s.query.startsWith("UPDATE alerts SET resolved=1"));
     expect(resolution?.params).toEqual([19]);
+  });
+
+  it("does not delete an upload that became READY after the stale-row query", async () => {
+    const db = new FakeDb(), deleted: string[] = [];
+    db.deleteChanges = {};
+    db.r2Rows = [{ id: 9, object_key: "companies/1/racing", lifecycle_state: "PENDING" }];
+    db.r2ClaimChanges = 0;
+
+    const result = await runScheduledMaintenance(envFor(db, deleted), new Date("2026-07-15T12:00:00.000Z"));
+
+    expect(result.deleted.r2Objects).toBe(0);
+    expect(deleted).toEqual([]);
+    expect(db.runs.some((s) => s.query.startsWith("UPDATE r2_objects SET lifecycle_state='ORPHANED'") && s.params[1] === 9)).toBe(true);
+    expect(db.runs.find((s) => s.query.startsWith("UPDATE r2_objects SET lifecycle_state='ORPHANED'"))?.params).toEqual(["2026-07-15T12:00:00.000Z", 9, "2026-07-14T12:00:00.000Z"]);
+    expect(db.runs.some((s) => s.query.startsWith("DELETE FROM r2_objects") && s.params[0] === 9)).toBe(false);
   });
 });
 

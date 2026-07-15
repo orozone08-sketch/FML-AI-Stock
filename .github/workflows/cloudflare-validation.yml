@@ -2,14 +2,16 @@ name: Cloudflare validation
 on:
   push:
     branches: [cloudflare/serverless-migration]
-    paths: ['cloudflare/**', '.github/workflows/cloudflare-*.yml']
+    paths: ['app/static/**', 'cloudflare/**', '.github/workflows/cloudflare-*.yml']
   pull_request:
-    paths: ['cloudflare/**', '.github/workflows/cloudflare-*.yml']
+    paths: ['app/static/**', 'cloudflare/**', '.github/workflows/cloudflare-*.yml']
 permissions:
   contents: read
 concurrency:
   group: cloudflare-validation-${{ github.ref }}
-  cancel-in-progress: true
+  # A push may already be applying an immutable D1 migration. Queue the next
+  # run instead of cancelling production halfway through that state change.
+  cancel-in-progress: false
 jobs:
   validate:
     runs-on: ubuntu-latest
@@ -27,14 +29,23 @@ jobs:
       - name: Replay migrations and deterministic seed
         run: npm run db:reset
       - run: npm run validate
+      - name: Verify committed asset manifest is current
+        run: git diff --exit-code -- src/generated/assets.ts
       - name: Scan tracked and built files for forbidden private material
         shell: bash
         run: |
           set -euo pipefail
-          ! git grep -IEn '(BEGIN (RSA |OPENSSH )?PRIVATE KEY|CLOUDFLARE_API_TOKEN=.{8}|mysql://[^[:space:]]+:[^[:space:]]+@)' -- . ':!cloudflare/package-lock.json'
+          ! git grep -IEn '(BEGIN (RSA |OPENSSH )?PRIVATE KEY|CLOUDFLARE_API_TOKEN=.{8}|mysql://[^[:space:]]+:[^[:space:]]+@)' -- . ':!cloudflare/package-lock.json' ':!.env.example'
           if grep -RIE '(BEGIN (RSA |OPENSSH )?PRIVATE KEY|mysql://[^[:space:]]+:[^[:space:]]+@)' dist public; then exit 1; fi
   deploy:
     if: github.event_name == 'push' && github.ref == 'refs/heads/cloudflare/serverless-migration'
     needs: validate
     uses: ./.github/workflows/cloudflare-deploy.yml
-    secrets: inherit
+    secrets:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      FASTOCKFLOW_D1_DATABASE_ID: ${{ secrets.FASTOCKFLOW_D1_DATABASE_ID }}
+      FASTOCKFLOW_WORKER_URL: ${{ secrets.FASTOCKFLOW_WORKER_URL }}
+      FASTOCKFLOW_SMOKE_LOGIN_ID: ${{ secrets.FASTOCKFLOW_SMOKE_LOGIN_ID }}
+      FASTOCKFLOW_SMOKE_PASSWORD: ${{ secrets.FASTOCKFLOW_SMOKE_PASSWORD }}
+      FASTOCKFLOW_SMOKE_COMPANY_ID: ${{ secrets.FASTOCKFLOW_SMOKE_COMPANY_ID }}

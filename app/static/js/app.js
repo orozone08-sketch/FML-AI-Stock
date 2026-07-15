@@ -1333,6 +1333,10 @@ document.addEventListener("click", (event) => {
 window.addEventListener("resize", () => closeActionMenus());
 window.addEventListener("scroll", positionOpenActionMenus, true);
 
+window.addEventListener("load", () => {
+  if (document.querySelector("[data-auto-print]")) window.print();
+});
+
 renderAppIcons();
 initializeThemeControls();
 initializeSidebarControls();

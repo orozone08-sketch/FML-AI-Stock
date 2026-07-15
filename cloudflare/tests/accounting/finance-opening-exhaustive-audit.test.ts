@@ -18,6 +18,8 @@ class AuditDb {
   prepare(q:string){return new Statement(q,this)}
   first(q:string,p:unknown[]){
     if(q.startsWith("SELECT request_digest")) return this.rows.find(r=>r.lookup==="idempotency")??null;
+    if(q.includes("FROM companies")||q.includes("FROM stock_books")||q.includes("FROM customers")||q.includes("FROM suppliers")||q.includes("FROM payment_modes")) return {id:1};
+    if(q.includes("FROM items")) return {count:1};
     if(q.includes("FROM payments")) return this.rows.find(r=>r.table==="payments"&&Number(r.id)===Number(p[0]))??null;
     if(q.includes("FROM receivables")) return this.rows.find(r=>r.table==="receivables"&&Number(r.id)===Number(p[0]))??null;
     if(q.includes("FROM payables")) return this.rows.find(r=>r.table==="payables"&&Number(r.id)===Number(p[0]))??null;

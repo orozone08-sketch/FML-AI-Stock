@@ -16,7 +16,13 @@ export const requestContext: MiddlewareHandler<{ Bindings: Env; Variables: AppVa
   c.header("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
 };
 export const requireAuth: MiddlewareHandler<{ Bindings: Env; Variables: AppVariables }> = async (c, next) => {
-  if (!c.get("user")) return c.redirect(`/login?next=${encodeURIComponent(c.req.path)}`, 303);
+  const user = c.get("user");
+  if (!user) {
+    const requestUrl = new URL(c.req.url);
+    const destination = `${requestUrl.pathname}${requestUrl.search}`;
+    return c.redirect(`/login?next=${encodeURIComponent(destination)}`, 303);
+  }
+  if (user.forcePasswordChange && c.req.path !== "/logout") return c.redirect("/change-password", 303);
   await next();
 };
 

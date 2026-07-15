@@ -31,7 +31,9 @@ export function normalizeFilters(input: ReportFilters, scope: CompanyScope): Req
     const value = result[key];
     if (value !== undefined && (!Number.isSafeInteger(value) || value <= 0)) throw new RangeError(`Invalid ${key}`);
   }
-  if ((result.cursorDate === undefined) !== (result.cursorId === undefined)) throw new RangeError("Both cursorDate and cursorId are required");
+  if (result.cursorDate !== undefined && result.cursorId === undefined) throw new RangeError("cursorDate requires cursorId");
+  if (result.cursorKey !== undefined && !/^\d{10}:\d{10}:\d{10}$/.test(result.cursorKey)) throw new RangeError("Invalid cursorKey");
   if (result.query !== undefined) result.query = result.query.trim().slice(0, 100);
+  if (result.status !== undefined && !["UNPAID", "PARTIAL", "PAID", "ADVANCE"].includes(result.status)) throw new RangeError("Invalid status");
   return result;
 }

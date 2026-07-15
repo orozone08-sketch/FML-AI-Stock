@@ -8,7 +8,6 @@ export interface Env {
   DEPLOY_COMMIT?: string;
   SESSION_HMAC_KEY: string;
   CSRF_HMAC_KEY: string;
-  REGISTRATION_INVITE_KEY: string;
   BOOTSTRAP_ADMIN_EMAIL?: string;
   BOOTSTRAP_ADMIN_PASSWORD?: string;
 }

@@ -1,6 +1,14 @@
 name: Cloudflare production deploy
 on:
   workflow_call:
+    secrets:
+      CLOUDFLARE_ACCOUNT_ID: { required: true }
+      CLOUDFLARE_API_TOKEN: { required: true }
+      FASTOCKFLOW_D1_DATABASE_ID: { required: true }
+      FASTOCKFLOW_WORKER_URL: { required: true }
+      FASTOCKFLOW_SMOKE_LOGIN_ID: { required: true }
+      FASTOCKFLOW_SMOKE_PASSWORD: { required: true }
+      FASTOCKFLOW_SMOKE_COMPANY_ID: { required: true }
 permissions:
   contents: read
 concurrency:
@@ -9,6 +17,7 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment: cloudflare-production
     defaults:
       run:
         working-directory: cloudflare
@@ -41,13 +50,67 @@ jobs:
           grep -q '"name": "fastockflow"' wrangler.jsonc
           grep -q '"database_name": "fastockflow-db"' wrangler.jsonc
           grep -q '"bucket_name": "fastockflow-files"' wrangler.jsonc
-          sed -i "s/00000000-0000-0000-0000-000000000000/$EXPECTED_D1_DATABASE_ID/" wrangler.jsonc
+          EXPECTED_D1_DATABASE_ID="$EXPECTED_D1_DATABASE_ID" node - <<'NODE'
+          const fs = require('node:fs');
+          const config = JSON.parse(fs.readFileSync('wrangler.jsonc', 'utf8'));
+          const binding = config.d1_databases?.find((entry) => entry.binding === 'DB');
+          if (!binding || binding.database_name !== 'fastockflow-db' || binding.database_id !== process.env.EXPECTED_D1_DATABASE_ID) {
+            console.error('wrangler.jsonc DB binding does not exactly match the protected production database identity.');
+            process.exit(1);
+          }
+          NODE
           npx wrangler whoami
           npx wrangler d1 info fastockflow-db --json | tee /tmp/d1-info.json
-          grep -q "$EXPECTED_D1_DATABASE_ID" /tmp/d1-info.json
+          EXPECTED_D1_DATABASE_ID="$EXPECTED_D1_DATABASE_ID" node - <<'NODE'
+          const fs = require('node:fs');
+          const info = JSON.parse(fs.readFileSync('/tmp/d1-info.json', 'utf8'));
+          const databases = Array.isArray(info) ? info : [info];
+          if (!databases.some((db) => db.uuid === process.env.EXPECTED_D1_DATABASE_ID || db.database_id === process.env.EXPECTED_D1_DATABASE_ID)) {
+            console.error('The remote D1 binding does not resolve to the protected database UUID.');
+            process.exit(1);
+          }
+          NODE
       - run: npm run validate
-      - name: Record D1 recovery point
-        run: npx wrangler d1 time-travel info fastockflow-db --json | tee /tmp/d1-recovery-point.json
+      - name: Capture pre-deploy recovery evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p recovery
+          npx wrangler d1 time-travel info fastockflow-db --json | tee recovery/d1-before.json
+          npx wrangler deployments status --name fastockflow --json | tee recovery/worker-deployment-before.json
+          DEPLOY_COMMIT="${{ github.sha }}" node - <<'NODE'
+          const fs = require('node:fs');
+          const d1 = JSON.parse(fs.readFileSync('recovery/d1-before.json', 'utf8'));
+          const deployment = JSON.parse(fs.readFileSync('recovery/worker-deployment-before.json', 'utf8'));
+          const bookmark = d1.bookmark;
+          const traffic = Array.isArray(deployment.versions) ? deployment.versions : [];
+          const previous = traffic.length === 1 && Number(traffic[0]?.percentage) === 100 ? traffic[0]?.version_id : undefined;
+          if (typeof bookmark !== 'string' || !bookmark || typeof previous !== 'string' || !previous) {
+            console.error('Could not derive an exact D1 bookmark and single 100% production Worker version.');
+            process.exit(1);
+          }
+          const lines = [
+            '# FAstockFlow deployment recovery evidence', '',
+            `GitHub run: ${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+            `Candidate commit: ${process.env.DEPLOY_COMMIT}`,
+            `Previous Worker version: ${previous}`,
+            `Pre-migration D1 bookmark: ${bookmark}`, '',
+            'Freeze writes before either recovery command. Restore code first only when the schema remains compatible.', '',
+            '```sh',
+            `npx wrangler rollback ${previous} --name fastockflow --message "Rollback GitHub run ${process.env.GITHUB_RUN_ID}" --yes`,
+            `npx wrangler d1 time-travel restore fastockflow-db --bookmark=${bookmark} --json`,
+            '```', '',
+            'D1 Time Travel does not restore R2 objects. Reconcile R2 separately from its inventory/backup before reopening writes.', ''
+          ];
+          fs.writeFileSync('recovery/RECOVERY.md', lines.join('\n'));
+          NODE
+      - name: Preserve recovery evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: fastockflow-recovery-${{ github.run_id }}
+          path: cloudflare/recovery/
+          if-no-files-found: error
+          retention-days: 30
       - name: Apply immutable migrations
         run: npx wrangler d1 migrations apply fastockflow-db --remote
       - name: Deploy tested Worker
@@ -114,12 +177,20 @@ jobs:
           }
           trap cleanup EXIT
 
+          curl --silent --show-error --fail --retry 5 --retry-all-errors --max-time 15 \
+            --cookie-jar "$cookie_jar" \
+            --output /tmp/fastockflow-login-form.body \
+            "$HEALTHCHECK_URL/login/company/$SMOKE_COMPANY_ID"
+          public_csrf="$(sed -n 's/.*name="csrf_token" value="\([^"]*\)".*/\1/p' /tmp/fastockflow-login-form.body | head -n 1)"
+          test -n "$public_csrf"
+
           login_status="$(curl --silent --show-error --retry 5 --retry-all-errors --max-time 15 \
             --cookie-jar "$cookie_jar" \
             --dump-header /tmp/fastockflow-login.headers \
             --output /tmp/fastockflow-login.body \
             --write-out '%{http_code}' \
             --request POST \
+            --data-urlencode "csrf_token=$public_csrf" \
             --data-urlencode "email=$SMOKE_LOGIN_ID" \
             --data-urlencode "password=$SMOKE_PASSWORD" \
             --data-urlencode "company_id=$SMOKE_COMPANY_ID" \

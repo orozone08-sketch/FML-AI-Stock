@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { REPORT_NAMES, REPORTS, ReportRepository, formatScaled, normalizeFilters, printableRows, toCsv } from "../../src/reports";
+import { REPORT_NAMES, REPORTS, ReportRepository, formatScaled, normalizeFilters, printableRows, toCsv, toPdf, toXlsx } from "../../src/reports";
 
 function fakeDb(rows: Record<string, unknown>[] = []) {
   const calls: Array<{ sql:string; values:unknown[] }> = [];
@@ -32,7 +32,8 @@ describe("bounded report filters", () => {
   it("rejects malformed and excessive date ranges and partial cursors", () => {
     expect(() => normalizeFilters({ from:"2026-02-30" }, { activeCompanyId:null })).toThrow(/Invalid/);
     expect(() => normalizeFilters({ from:"2024-01-01",to:"2026-01-01" }, { activeCompanyId:null })).toThrow(/exceeds/);
-    expect(() => normalizeFilters({ cursorDate:"2026-01-01" }, { activeCompanyId:null })).toThrow(/Both/);
+    expect(() => normalizeFilters({ cursorDate:"2026-01-01" }, { activeCompanyId:null })).toThrow(/requires/);
+    expect(() => normalizeFilters({ cursorKey:"bad" }, { activeCompanyId:null })).toThrow(/cursorKey/);
   });
 });
 
@@ -52,6 +53,16 @@ describe("scaled integer exports", () => {
     expect(csv).toContain("123.45");
     expect(printableRows(source).rows[0]).toEqual(['Acme, "West"',"123.45","2.5"]);
   });
+
+  it("produces genuine XLSX and PDF binary formats", () => {
+    const rows=[{party:"Acme",balance_amount_paise:12345}];
+    const xlsx=toXlsx(rows,"Outstanding");
+    expect(Array.from(xlsx.slice(0,4))).toEqual([0x50,0x4b,0x03,0x04]);
+    expect(new TextDecoder().decode(xlsx)).toContain("xl/worksheets/sheet1.xml");
+    const pdf=toPdf("Outstanding",rows);
+    expect(new TextDecoder().decode(pdf.slice(0,8))).toBe("%PDF-1.4");
+    expect(new TextDecoder().decode(pdf.slice(-20))).toContain("%%EOF");
+  });
 });
 
 describe("D1 report repository", () => {
@@ -63,5 +74,21 @@ describe("D1 report repository", () => {
     expect(calls[0]?.sql).toContain("ORDER BY s.invoice_date DESC, s.id DESC LIMIT ?");
     expect(calls[0]?.sql.toUpperCase()).not.toContain("SELECT *");
     expect(calls[0]?.values).toEqual([4,"2026-01-01","2026-06-30","2026-06-02","2026-06-02",10,2]);
+  });
+
+  it("applies customer and supplier filters instead of silently ignoring them",async()=>{
+    const customer=fakeDb([]);await new ReportRepository(customer.db,{activeCompanyId:4}).named("customer-ledger",{customerId:7});
+    expect(customer.calls[0]?.sql).toContain("x.customer_id=?");expect(customer.calls[0]?.values).toEqual([4,7,51]);
+    const supplier=fakeDb([]);await new ReportRepository(supplier.db,{activeCompanyId:4}).named("purchases",{supplierId:9});
+    expect(supplier.calls[0]?.sql).toContain("p.supplier_id=?");expect(supplier.calls[0]?.values).toEqual([4,9,51]);
+  });
+
+  it("paginates dateless composite inventory rows with an opaque stable cursor",async()=>{
+    const key="0000000001:0000000002:0000000003";
+    const capture=fakeDb([{id:3,cursor_key:key},{id:2,cursor_key:"0000000001:0000000002:0000000002"}]);
+    const result=await new ReportRepository(capture.db,{activeCompanyId:1}).named("current-stock",{limit:1});
+    expect(result).toMatchObject({hasMore:true,nextCursor:{key},rows:[{id:3}]});
+    const next=fakeDb([]);await new ReportRepository(next.db,{activeCompanyId:1}).named("current-stock",{cursorKey:key});
+    expect(next.calls[0]?.sql).toContain("printf('%010d:%010d:%010d',sb.company_id,sb.id,i.id)<?");
   });
 });

@@ -5,6 +5,7 @@ export interface ReportFilters {
   to?: string;
   cursorDate?: string;
   cursorId?: number;
+  cursorKey?: string;
   limit?: number;
   itemId?: number;
   stockBookId?: number;
@@ -12,11 +13,12 @@ export interface ReportFilters {
   supplierId?: number;
   month?: string;
   query?: string;
+  status?: "UNPAID" | "PARTIAL" | "PAID" | "ADVANCE";
 }
 export interface ReportResult<T = Record<string, unknown>> {
   rows: T[];
   hasMore: boolean;
-  nextCursor: { date: string; id: number } | null;
+  nextCursor: { date?: string; id?: number; key?: string } | null;
 }
 export interface ReportDefinition {
   name: string;

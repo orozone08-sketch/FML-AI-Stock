@@ -18,7 +18,7 @@
     "db:migrate": "wrangler d1 migrations apply fastockflow-db --local",
     "db:seed": "node scripts/seed-local.mjs",
     "db:reset": "node scripts/reset-local.mjs",
-    "validate": "npm run build:static && npm run typecheck && npm test && npm run test:migration && npm run build && npm run check:bundle"
+    "validate": "npm run build:static && npm run typecheck && npm test && npm run test:coverage && npm run test:migration && npm run build && npm run check:bundle"
   },
   "dependencies": {
     "hono": "4.12.30"

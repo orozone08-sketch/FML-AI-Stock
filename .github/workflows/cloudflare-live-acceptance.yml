@@ -1,0 +1,158 @@
+name: Cloudflare production acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type RUN_PRODUCTION_ACCEPTANCE to run bounded create/edit/delete tests against production
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fastockflow-cloudflare-production
+  cancel-in-progress: false
+
+jobs:
+  acceptance:
+    if: github.ref == 'refs/heads/cloudflare/serverless-migration' && inputs.confirmation == 'RUN_PRODUCTION_ACCEPTANCE'
+    runs-on: ubuntu-latest
+    environment: cloudflare-production
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: cloudflare
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      EXPECTED_D1_DATABASE_ID: ${{ secrets.FASTOCKFLOW_D1_DATABASE_ID }}
+      FASTOCKFLOW_WORKER_URL: ${{ secrets.FASTOCKFLOW_WORKER_URL }}
+      FASTOCKFLOW_SMOKE_LOGIN_ID: ${{ secrets.FASTOCKFLOW_SMOKE_LOGIN_ID }}
+      FASTOCKFLOW_SMOKE_PASSWORD: ${{ secrets.FASTOCKFLOW_SMOKE_PASSWORD }}
+      FASTOCKFLOW_SMOKE_COMPANY_ID: ${{ secrets.FASTOCKFLOW_SMOKE_COMPANY_ID }}
+      FASTOCKFLOW_ACCEPTANCE_RESULT_FILE: ${{ runner.temp }}/fastockflow-live-acceptance.json
+      FASTOCKFLOW_ACCEPTANCE_PREFIX_FILE: ${{ runner.temp }}/fastockflow-live-acceptance-prefix.txt
+      FASTOCKFLOW_ACCEPTANCE_REQUIRE_FULL: '1'
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: cloudflare/serverless-migration
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: cloudflare/package-lock.json
+      - run: npm ci
+
+      - name: Verify permanent branch and production resource identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/cloudflare/serverless-migration'
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "${{ inputs.confirmation }}" = 'RUN_PRODUCTION_ACCEPTANCE'
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$EXPECTED_D1_DATABASE_ID"
+          test -n "$FASTOCKFLOW_WORKER_URL"
+          test "$FASTOCKFLOW_SMOKE_COMPANY_ID" -gt 0
+          EXPECTED_D1_DATABASE_ID="$EXPECTED_D1_DATABASE_ID" node - <<'NODE'
+          const fs = require('node:fs');
+          const config = JSON.parse(fs.readFileSync('wrangler.jsonc', 'utf8'));
+          const binding = config.d1_databases?.find((entry) => entry.binding === 'DB');
+          if (!binding || binding.database_name !== 'fastockflow-db' || binding.database_id !== process.env.EXPECTED_D1_DATABASE_ID) process.exit(1);
+          NODE
+          npx wrangler d1 info fastockflow-db --json > "$RUNNER_TEMP/fastockflow-d1-info.json"
+          EXPECTED_D1_DATABASE_ID="$EXPECTED_D1_DATABASE_ID" node - <<'NODE'
+          const fs = require('node:fs');
+          const raw = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/fastockflow-d1-info.json', 'utf8'));
+          const rows = Array.isArray(raw) ? raw : [raw];
+          if (!rows.some((row) => row.uuid === process.env.EXPECTED_D1_DATABASE_ID || row.database_id === process.env.EXPECTED_D1_DATABASE_ID)) process.exit(1);
+          NODE
+
+      - name: Resolve bounded accounting fixtures
+        id: fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          company="$FASTOCKFLOW_SMOKE_COMPANY_ID"
+          case "$company" in (*[!0-9]*|'') exit 1;; esac
+          npx wrangler d1 execute fastockflow-db --remote --json --command \
+            "SELECT source.id source_stock_book_id,source.book_type document_type,dest.company_id,dest.id stock_book_id FROM companies c JOIN stock_books source ON source.company_id=c.id AND source.active=1 LEFT JOIN stock_books dest ON dest.id=(SELECT dsb.id FROM stock_books dsb JOIN companies dc ON dc.id=dsb.company_id WHERE dsb.active=1 AND dc.active=1 AND dsb.company_id<>c.id AND dsb.book_type=source.book_type ORDER BY dsb.company_id,dsb.code,dsb.id LIMIT 1) WHERE c.id=$company AND c.active=1 AND ((source.book_type='GST' AND c.allow_gst_purchase=1 AND c.allow_gst_sale=1) OR (source.book_type='CASH' AND c.allow_cash_purchase=1 AND c.allow_cash_sale=1)) ORDER BY CASE source.book_type WHEN 'GST' THEN 0 ELSE 1 END,source.code,source.id LIMIT 1" \
+            > "$RUNNER_TEMP/fastockflow-accounting-fixture.json"
+          node - <<'NODE' >> "$GITHUB_OUTPUT"
+          const fs = require('node:fs');
+          const raw = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/fastockflow-accounting-fixture.json', 'utf8'));
+          const row = raw?.[0]?.results?.[0];
+          if (!row || !['GST', 'CASH'].includes(row.document_type) || !Number.isSafeInteger(Number(row.source_stock_book_id))) process.exit(1);
+          console.log(`source_stock_book_id=${row.source_stock_book_id}`);
+          console.log(`purchase_type=${row.document_type}`);
+          console.log(`sale_type=${row.document_type}`);
+          if (row.company_id != null || row.stock_book_id != null) {
+            if (!Number.isSafeInteger(Number(row.company_id)) || !Number.isSafeInteger(Number(row.stock_book_id))) process.exit(1);
+            console.log(`company_id=${row.company_id}`);
+            console.log(`stock_book_id=${row.stock_book_id}`);
+          }
+          NODE
+
+      - name: Run authenticated create edit cleanup acceptance
+        env:
+          FASTOCKFLOW_ACCEPTANCE_DEST_COMPANY_ID: ${{ steps.fixture.outputs.company_id }}
+          FASTOCKFLOW_ACCEPTANCE_DEST_STOCK_BOOK_ID: ${{ steps.fixture.outputs.stock_book_id }}
+          FASTOCKFLOW_ACCEPTANCE_SOURCE_STOCK_BOOK_ID: ${{ steps.fixture.outputs.source_stock_book_id }}
+          FASTOCKFLOW_ACCEPTANCE_PURCHASE_TYPE: ${{ steps.fixture.outputs.purchase_type }}
+          FASTOCKFLOW_ACCEPTANCE_SALE_TYPE: ${{ steps.fixture.outputs.sale_type }}
+        run: node scripts/live-production-acceptance.mjs
+
+      - name: Assert no active D1 or R2 metadata residue
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$FASTOCKFLOW_ACCEPTANCE_PREFIX_FILE"
+          prefix="$(tr -d '\r\n' < "$FASTOCKFLOW_ACCEPTANCE_PREFIX_FILE")"
+          case "$prefix" in (*[!A-Z0-9-]*|'') echo 'Invalid QA prefix'; exit 1;; esac
+          file_id=0
+          if test -s "$FASTOCKFLOW_ACCEPTANCE_RESULT_FILE"; then
+            file_id="$(node -e "const r=require(process.env.FASTOCKFLOW_ACCEPTANCE_RESULT_FILE); console.log(Number.isSafeInteger(Number(r.fileId)) ? Number(r.fileId) : 0)")"
+          fi
+          npx wrangler d1 execute fastockflow-db --remote --json --command \
+            "SELECT 'opening_stocks' entity,COUNT(*) residue FROM opening_stocks WHERE is_void=0 AND reference_number LIKE '$prefix%'; SELECT 'purchases' entity,COUNT(*) residue FROM purchases WHERE is_void=0 AND bill_number LIKE '$prefix%'; SELECT 'sales' entity,COUNT(*) residue FROM sales WHERE is_void=0 AND invoice_number LIKE '$prefix%'; SELECT 'transfers' entity,COUNT(*) residue FROM inter_company_transfers WHERE is_void=0 AND reference_number LIKE '$prefix%'; SELECT 'payments' entity,COUNT(*) residue FROM payments WHERE reference_number LIKE '$prefix%'; SELECT 'r2_objects' entity,COUNT(*) residue FROM r2_objects WHERE id=$file_id AND lifecycle_state IN ('PENDING','READY','ORPHANED');" \
+            > "$RUNNER_TEMP/fastockflow-live-residue.json"
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const raw = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/fastockflow-live-residue.json', 'utf8'));
+          const rows = (Array.isArray(raw) ? raw : []).flatMap((entry) => entry?.results ?? []);
+          const residue = rows.filter((row) => Number(row.residue) !== 0);
+          if (residue.length) {
+            console.error('Active production QA residue remains:', JSON.stringify(residue));
+            process.exit(1);
+          }
+          NODE
+
+      - name: Publish acceptance summary
+        if: always()
+        shell: bash
+        run: |
+          if test -s "$FASTOCKFLOW_ACCEPTANCE_RESULT_FILE"; then
+            {
+              echo '## Cloudflare production acceptance'
+              echo '```json'
+              cat "$FASTOCKFLOW_ACCEPTANCE_RESULT_FILE"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Preserve bounded acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fastockflow-live-acceptance-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/fastockflow-live-acceptance.json
+            ${{ runner.temp }}/fastockflow-live-residue.json
+          if-no-files-found: warn
+          retention-days: 7

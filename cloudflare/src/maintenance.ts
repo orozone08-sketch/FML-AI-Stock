@@ -23,18 +23,22 @@ async function boundedDelete(db: D1Database, table: string, timestampColumn: str
   return Number(result.meta.changes ?? 0);
 }
 
-async function cleanupR2(env: Env, cutoff: string) {
-  const rows = await env.DB.prepare("SELECT id,object_key FROM r2_objects WHERE lifecycle_state IN ('PENDING','ORPHANED') AND created_at<=? ORDER BY created_at,id LIMIT ?")
+async function cleanupR2(env: Env, cutoff: string, now: string) {
+  const rows = await env.DB.prepare("SELECT id,object_key,lifecycle_state FROM r2_objects WHERE lifecycle_state IN ('PENDING','ORPHANED') AND created_at<=? ORDER BY created_at,id LIMIT ?")
     .bind(cutoff, MAINTENANCE_LIMITS.r2Objects).all<Row>();
-  const removed: number[] = [];
+  let removed = 0;
   for (const row of rows.results) {
+    const id = Number(row.id);
+    if (row.lifecycle_state === "PENDING") {
+      const claimed = await env.DB.prepare("UPDATE r2_objects SET lifecycle_state='ORPHANED',deleted_at=? WHERE id=? AND lifecycle_state='PENDING' AND created_at<=?")
+        .bind(now, id, cutoff).run();
+      if (Number(claimed.meta.changes ?? 0) !== 1) continue;
+    }
     await env.FILES.delete(String(row.object_key));
-    removed.push(Number(row.id));
+    const metadata = await env.DB.prepare("DELETE FROM r2_objects WHERE id=? AND lifecycle_state='ORPHANED'").bind(id).run();
+    removed += Number(metadata.meta.changes ?? 0);
   }
-  if (removed.length) {
-    await env.DB.batch(removed.map((id) => env.DB.prepare("DELETE FROM r2_objects WHERE id=? AND lifecycle_state IN ('PENDING','ORPHANED')").bind(id)));
-  }
-  return removed.length;
+  return removed;
 }
 
 const BALANCE_RECONCILIATION = `
@@ -117,7 +121,7 @@ export async function runScheduledMaintenance(env: Env, at = new Date()): Promis
     boundedDelete(env.DB, "login_attempts", "created_at", loginCutoff, MAINTENANCE_LIMITS.loginAttempts),
     boundedDelete(env.DB, "idempotency_keys", "expires_at", now, MAINTENANCE_LIMITS.idempotencyKeys),
   ]);
-  const r2Objects = await cleanupR2(env, r2Cutoff);
+  const r2Objects = await cleanupR2(env, r2Cutoff, now);
   const reconciliation = await reconcile(env, now);
   return { deleted: { sessions, loginAttempts, idempotencyKeys, r2Objects }, reconciliation };
 }

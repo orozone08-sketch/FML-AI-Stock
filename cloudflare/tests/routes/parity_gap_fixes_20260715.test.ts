@@ -12,6 +12,7 @@ describe("route and browser parity gap fixes",()=>{
       "GET /masters/customers/:customerId/print",
       "GET /masters/customers/:customerId/export/:fmt",
       "GET /masters/suppliers/:supplierId/transactions",
+      "POST /masters/customers/:id/delete",
     ]));
   });
 

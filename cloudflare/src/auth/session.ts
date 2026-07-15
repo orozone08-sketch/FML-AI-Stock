@@ -50,13 +50,14 @@ export function clearSessionHeaders(request: Request): string[] {
   return [cookie(SESSION_COOKIE, "", { httpOnly: true, maxAge: 0, secure }), cookie(CSRF_COOKIE, "", { maxAge: 0, secure }), cookie(COMPANY_COOKIE, "", { maxAge: 0, secure })];
 }
 
-async function activeCompany(raw: string | undefined, userCompanyId: number | null, role: Role, secret: string): Promise<number | null> {
+async function activeCompany(db: D1Database, raw: string | undefined, userCompanyId: number | null, role: Role, secret: string): Promise<number | null> {
   if (userCompanyId) return userCompanyId;
   if (!raw || role !== "ADMIN") return null;
   const [idText, signature] = raw.split(".");
   const id = Number.parseInt(idText ?? "", 10);
   if (!Number.isSafeInteger(id) || !idText || !signature || await hmac(idText, secret) !== signature) return null;
-  return id;
+  const company = await db.prepare("SELECT id FROM companies WHERE id=? AND active=1").bind(id).first();
+  return company ? id : null;
 }
 
 export async function companyCookie(companyId: number | null, request: Request, secret: string): Promise<string> {
@@ -72,8 +73,9 @@ export async function loadUser(c: Context<{ Bindings: Env; Variables: AppVariabl
   if (!token || !csrf) return null;
   const now = nowIso();
   const row = await c.env.DB.prepare(`SELECT s.id AS session_id,s.csrf_digest,u.id,u.name,u.email,u.role,u.company_id,u.force_password_change
-    FROM sessions s JOIN users u ON u.id=s.user_id
-    WHERE s.token_digest=? AND s.revoked_at IS NULL AND s.expires_at>? AND u.active=1 LIMIT 1`)
+    FROM sessions s JOIN users u ON u.id=s.user_id LEFT JOIN companies co ON co.id=u.company_id
+    WHERE s.token_digest=? AND s.revoked_at IS NULL AND s.expires_at>? AND u.active=1
+      AND (u.company_id IS NULL OR co.active=1) LIMIT 1`)
     .bind(await sha256(token), now).first<Record<string, unknown>>();
   if (!row || await sha256(csrf) !== row.csrf_digest) return null;
   const role = String(row.role) as Role;
@@ -82,7 +84,7 @@ export async function loadUser(c: Context<{ Bindings: Env; Variables: AppVariabl
   return {
     id: Number(row.id), name: String(row.name), email: String(row.email), role,
     companyId: row.company_id == null ? null : Number(row.company_id),
-    activeCompanyId: await activeCompany(jar[COMPANY_COOKIE], row.company_id == null ? null : Number(row.company_id), role, c.env.SESSION_HMAC_KEY),
+    activeCompanyId: await activeCompany(c.env.DB, jar[COMPANY_COOKIE], row.company_id == null ? null : Number(row.company_id), role, c.env.SESSION_HMAC_KEY),
     forcePasswordChange: Boolean(row.force_password_change),
     permissions: applyOverrides(permissionsFor(role), overrides.results), csrfToken: csrf, sessionId: Number(row.session_id),
   };
