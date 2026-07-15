@@ -49,7 +49,7 @@ After every completed snapshot import, the importer rebuilds `inventory_balances
 
 Before any remote mutation, run `npx wrangler whoami`, verify the intended account, and confirm the three permanent names are unused or exactly the intended resources. Replace the all-zero D1 ID only through the protected deployment workflow/secret. Do not commit an account ID, API token, or private export.
 
-Required GitHub environment `cloudflare-production` secrets:
+Required GitHub repository Actions secrets:
 
 - `CLOUDFLARE_ACCOUNT_ID`
 - `CLOUDFLARE_API_TOKEN` with least privilege for this Worker, D1, R2 and Durable Object deployment

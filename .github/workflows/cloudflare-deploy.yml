@@ -15,7 +15,6 @@ jobs:
       github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.head_branch == 'cloudflare/serverless-migration'
     runs-on: ubuntu-latest
-    environment: cloudflare-production
     defaults:
       run:
         working-directory: cloudflare
