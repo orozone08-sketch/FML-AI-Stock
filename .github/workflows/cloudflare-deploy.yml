@@ -124,6 +124,8 @@ jobs:
             --data-urlencode "password=$SMOKE_PASSWORD" \
             --data-urlencode "company_id=$SMOKE_COMPANY_ID" \
             "$HEALTHCHECK_URL/login")"
+          echo "Login status: $login_status"
+          echo "Login redirect: $(awk 'tolower($1) == "location:" { print $2 }' /tmp/fastockflow-login.headers | tr -d '\r' | tail -n 1)"
           test "$login_status" = "303"
           grep -Eqi '^location: /dashboard/?\r?$' /tmp/fastockflow-login.headers
           grep -q 'fastock_session' "$cookie_jar"
@@ -132,17 +134,26 @@ jobs:
           dashboard_status="$(curl --silent --show-error --retry 5 --retry-all-errors --max-time 15 \
             --cookie "$cookie_jar" --output /tmp/fastockflow-dashboard.body \
             --write-out '%{http_code}' "$HEALTHCHECK_URL/dashboard")"
+          echo "Dashboard status: $dashboard_status"
           test "$dashboard_status" = "200"
-          grep -q '<title>Dashboard · FAstockFlow</title>' /tmp/fastockflow-dashboard.body
+          if ! grep -q '<title>Dashboard · FAstockFlow</title>' /tmp/fastockflow-dashboard.body; then
+            echo "Unexpected dashboard title: $(grep -o '<title>[^<]*</title>' /tmp/fastockflow-dashboard.body | head -n 1)"
+            exit 1
+          fi
 
           report_status="$(curl --silent --show-error --retry 5 --retry-all-errors --max-time 15 \
             --cookie "$cookie_jar" --output /tmp/fastockflow-report.body \
             --write-out '%{http_code}' "$HEALTHCHECK_URL/reports/current-stock")"
+          echo "Current-stock report status: $report_status"
           test "$report_status" = "200"
-          grep -q 'Current Stock Report' /tmp/fastockflow-report.body
+          if ! grep -q 'Current Stock Report' /tmp/fastockflow-report.body; then
+            echo "Current-stock report marker missing."
+            exit 1
+          fi
 
           storage_status="$(curl --silent --show-error --retry 5 --retry-all-errors --max-time 15 \
             --cookie "$cookie_jar" --output /tmp/fastockflow-storage.body \
             --write-out '%{http_code}' "$HEALTHCHECK_URL/files/status")"
+          echo "R2 status endpoint: $storage_status"
           test "$storage_status" = "200"
           node -e "const r=JSON.parse(require('node:fs').readFileSync('/tmp/fastockflow-storage.body','utf8')); if(r.ok!==true||r.storage!==true) process.exit(1)"
