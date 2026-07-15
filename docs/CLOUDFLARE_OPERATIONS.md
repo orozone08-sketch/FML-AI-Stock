@@ -43,6 +43,8 @@ node scripts/verify-migration.mjs D:\secure-migrations\fastockflow-20260714
 
 Verification compares all 26 source-model table counts, scaled money/quantity control totals, and foreign-key integrity. A nonzero exit or any unexplained difference stops migration. Representative login, company scope, opening, purchase, sale including negative stock, payment allocation, transfer, report, and audit tests must then pass.
 
+After every completed snapshot import, the importer rebuilds `inventory_balances` from the complete stock ledger. This is mandatory because the source application calculates current stock from ledger history and has no equivalent materialized table to export. Verify that every distinct ledger company/book/item key has a balance row and that its quantity and signed value match the ledger aggregate before cutover.
+
 ## Production resource bootstrap
 
 Before any remote mutation, run `npx wrangler whoami`, verify the intended account, and confirm the three permanent names are unused or exactly the intended resources. Replace the all-zero D1 ID only through the protected deployment workflow/secret. Do not commit an account ID, API token, or private export.

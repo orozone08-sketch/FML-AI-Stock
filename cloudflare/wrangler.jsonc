@@ -26,6 +26,6 @@
   "durable_objects": { "bindings": [{ "name": "ACCOUNTING", "class_name": "AccountingCoordinator" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["AccountingCoordinator"] }],
   "triggers": { "crons": ["17 * * * *"] },
-  "vars": { "APP_ENV": "production", "APP_NAME": "FAstockFlow", "SCHEMA_VERSION": "0004", "SITE_URL": "https://fastockflow.stepper.workers.dev" },
+  "vars": { "APP_ENV": "production", "APP_NAME": "FAstockFlow", "SCHEMA_VERSION": "0005", "SITE_URL": "https://fastockflow.stepper.workers.dev" },
   "observability": { "enabled": true, "head_sampling_rate": 1 }
 }

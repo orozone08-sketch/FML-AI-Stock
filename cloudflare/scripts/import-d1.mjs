@@ -56,7 +56,8 @@ try {
     await writeFile(checkpointedPath, sql);
     run(['wrangler','d1','execute','fastockflow-db',remote ? '--remote' : '--local','--file',checkpointedPath]);
   }
+  run(['wrangler','d1','execute','fastockflow-db',remote ? '--remote' : '--local','--file',resolve('scripts/rebuild-inventory-balances.sql')]);
 } finally {
   await rm(tempDirectory, { recursive: true, force: true });
 }
-console.log(`Imported ${manifest.snapshot_id} into ${remote ? 'REMOTE fastockflow-db' : 'local fastockflow-db'}`);
+console.log(`Imported ${manifest.snapshot_id} and rebuilt inventory balances in ${remote ? 'REMOTE fastockflow-db' : 'local fastockflow-db'}`);
