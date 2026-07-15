@@ -33,3 +33,8 @@ jobs:
           set -euo pipefail
           ! git grep -IEn '(BEGIN (RSA |OPENSSH )?PRIVATE KEY|CLOUDFLARE_API_TOKEN=.{8}|mysql://[^[:space:]]+:[^[:space:]]+@)' -- . ':!cloudflare/package-lock.json'
           if grep -RIE '(BEGIN (RSA |OPENSSH )?PRIVATE KEY|mysql://[^[:space:]]+:[^[:space:]]+@)' dist public; then exit 1; fi
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/cloudflare/serverless-migration'
+    needs: validate
+    uses: ./.github/workflows/cloudflare-deploy.yml
+    secrets: inherit
