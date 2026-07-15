@@ -1,0 +1,35 @@
+name: Cloudflare validation
+on:
+  push:
+    branches: [cloudflare/serverless-migration]
+    paths: ['cloudflare/**', '.github/workflows/cloudflare-*.yml']
+  pull_request:
+    paths: ['cloudflare/**', '.github/workflows/cloudflare-*.yml']
+permissions:
+  contents: read
+concurrency:
+  group: cloudflare-validation-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cloudflare
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: cloudflare/package-lock.json
+      - run: npm ci
+      - name: Replay migrations and deterministic seed
+        run: npm run db:reset
+      - run: npm run validate
+      - name: Scan tracked and built files for forbidden private material
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! git grep -IEn '(BEGIN (RSA |OPENSSH )?PRIVATE KEY|CLOUDFLARE_API_TOKEN=.{8}|mysql://[^[:space:]]+:[^[:space:]]+@)' -- . ':!cloudflare/package-lock.json'
+          if grep -RIE '(BEGIN (RSA |OPENSSH )?PRIVATE KEY|mysql://[^[:space:]]+:[^[:space:]]+@)' dist public; then exit 1; fi

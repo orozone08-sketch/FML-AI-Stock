@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "source": "Flask application on cloudflare/serverless-migration",
+  "generatedFrom": ["app/*/routes.py", "app/core/security.py", "app/core/company_context.py", "tests/test_*.py"],
+  "expected": {"routeDecorators": 81, "pytestCases": 92, "templates": 41, "modelClasses": 26},
+  "statusValues": ["not-assessed", "implemented", "tested", "intentional-omission", "blocked"],
+  "globalContracts": {
+    "csrf": "Every state-changing browser request requires CSRF protection.",
+    "session": "Authenticated browser session; inactive users are rejected.",
+    "companyGate": "Authenticated requests outside auth/company selection require an active company unless the user may view all companies.",
+    "money": "Exact decimal behavior; the Worker implementation stores scaled integers.",
+    "tenantIsolation": "Path/form/query company identifiers never override the authenticated user's allowed company scope.",
+    "errors": [403, 404, 500]
+  },
+  "routeGroups": [
+    {"module":"auth","count":6,"routes":["GET /","GET|POST /login","GET|POST /login/company/:companyId","GET|POST /register","GET|POST /admin/login","POST /logout"],"tests":["test_navigation.py"],"status":"not-assessed"},
+    {"module":"company","count":3,"routes":["GET /company/choose","POST /company/select","POST /company/all"],"tests":["test_company_scope.py","test_navigation.py"],"status":"not-assessed"},
+    {"module":"customer-api","count":6,"routes":["GET /customers","GET /customers/:customerId","GET /customers/:customerId/invoices","GET /customers/:customerId/challans","GET /customers/:customerId/payments","GET /customers/:customerId/stock"],"tests":["test_customer_profile.py"],"status":"not-assessed"},
+    {"module":"dashboard","count":2,"routes":["GET /dashboard/","GET /dashboard/calendar-events"],"tests":["test_navigation.py","test_tools_widget.py"],"status":"not-assessed"},
+    {"module":"masters","count":10,"routes":["GET /masters/","GET /masters/:kind","GET /masters/customers/:customerId","GET /masters/customers/:customerId/print","GET /masters/customers/:customerId/export/:fmt","GET /masters/suppliers/:supplierId/transactions","GET|POST /masters/:kind/new","GET|POST /masters/:kind/:recordId/edit","POST /masters/customers/:customerId/delete","POST /masters/:kind/:recordId/deactivate"],"tests":["test_customer_profile.py","test_master_validation.py","test_navigation.py"],"status":"not-assessed"},
+    {"module":"payments","count":10,"routes":["GET /finance/payments","GET /finance/payments/:paymentId/export/:fmt","GET /finance/payments/:paymentId/print","GET|POST /finance/payments/:paymentId/edit","POST /finance/payments/:paymentId/delete","POST /finance/payments/customer-receipt","POST /finance/payments/supplier-payment","GET /finance/outstanding","GET /finance/outstanding/customer/:companyId/:customerId","GET /finance/outstanding/supplier/:companyId/:supplierId"],"tests":["test_entry_exports.py","test_navigation.py","test_payment_edit_delete.py","test_report_totals.py"],"status":"not-assessed"},
+    {"module":"reports","count":5,"routes":["GET /reports/","GET /reports/item-ledger","GET /reports/customer-ledger","GET /reports/customer-ledger/detail","GET /reports/:name"],"tests":["test_company_scope.py","test_navigation.py","test_report_totals.py"],"status":"not-assessed"},
+    {"module":"transactions","count":35,"routes":["GET /transactions/reference/:kind","GET|POST /transactions/purchase","GET|POST /transactions/purchase/:id/edit","POST /transactions/purchase/:id/delete","GET /transactions/purchase/:id/export/:fmt","GET /transactions/purchase/:id/print","GET|POST /transactions/sale","GET|POST /transactions/sale/:id/edit","POST /transactions/sale/:id/delete","GET /transactions/sale/:id/export/:fmt","GET /transactions/sale/:id/view","GET /transactions/sale/:id/print","GET|POST /transactions/transfer","GET|POST /transactions/transfer/:id/edit","POST /transactions/transfer/:id/delete","GET /transactions/transfer/:id/export/:fmt","GET /transactions/transfer/:id/print","GET /transactions/opening","POST /transactions/opening/:section","POST /transactions/opening/stock/:id/delete","GET /transactions/opening/stock/:id/export/:fmt","GET /transactions/opening/stock/:id/print","GET|POST /transactions/opening/stock/:id/edit","POST /transactions/opening/receivable/:id/delete","GET /transactions/opening/receivable/:id/export/:fmt","GET /transactions/opening/receivable/:id/print","GET|POST /transactions/opening/receivable/:id/edit","POST /transactions/opening/payable/:id/delete","GET /transactions/opening/payable/:id/export/:fmt","GET /transactions/opening/payable/:id/print","GET|POST /transactions/opening/payable/:id/edit","POST /transactions/opening/advance/:id/delete","GET /transactions/opening/advance/:id/export/:fmt","GET /transactions/opening/advance/:id/print","GET|POST /transactions/opening/advance/:id/edit"],"tests":["test_company_scope.py","test_entry_exports.py","test_fifo_workflows.py","test_opening_simplified.py","test_purchase_edit.py","test_sale_transfer_edit.py"],"status":"not-assessed"},
+    {"module":"users","count":4,"routes":["GET /users/","GET|POST /users/new","GET|POST /users/:userId/edit","POST /users/:userId/deactivate"],"tests":["test_navigation.py"],"status":"not-assessed"}
+  ],
+  "reportNames": ["current-stock","fifo-valuation","fifo-layers","stock-ledger","item-ledger","purchases","purchases-monthly","sales","sales-monthly","sales-by-type","customer-ledger","gross-profit","customer-outstanding","supplier-outstanding","advances","payment-history","due-alerts","stock-alerts","inter-company","opening-summary","purchase-price-fluctuation","sale-price-fluctuation","audit"],
+  "masterKinds": ["items","customers","suppliers","companies","stock-books"],
+  "referenceKinds": ["purchase","sale","transfer","opening-stock","opening-receivable","opening-payable","opening-advance","payment"],
+  "openingSections": ["stock","pending-stock","receivable","payable","advance-received","advance-paid"],
+  "formats": ["csv","pdf","print"],
+  "intentionalOmissions": ["chatbot","generative AI assistant","websocket chat","push notifications","OCR ingestion","live collaborative editing"]
+}

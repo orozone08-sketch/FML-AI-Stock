@@ -1,0 +1,31 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "fastockflow",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-07-15",
+  "workers_dev": true,
+  "preview_urls": false,
+  "minify": true,
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": [
+      "/", "/login*", "/admin/*", "/register", "/logout", "/company/*", "/dashboard/*",
+      "/masters/*", "/users/*", "/transactions/*", "/finance/*", "/reports/*", "/customers/*",
+      "/files/*",
+      "/api/*", "/healthz", "/readyz"
+    ]
+  },
+  "d1_databases": [{
+    "binding": "DB",
+    "database_name": "fastockflow-db",
+    "database_id": "30d2ab28-4ca5-4770-a4ae-28b6c38086cd",
+    "migrations_dir": "migrations"
+  }],
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "fastockflow-files" }],
+  "durable_objects": { "bindings": [{ "name": "ACCOUNTING", "class_name": "AccountingCoordinator" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["AccountingCoordinator"] }],
+  "triggers": { "crons": ["17 * * * *"] },
+  "vars": { "APP_ENV": "production", "APP_NAME": "FAstockFlow", "SCHEMA_VERSION": "0005", "SITE_URL": "https://fastockflow.stepper.workers.dev" },
+  "observability": { "enabled": true, "head_sampling_rate": 1 }
+}
