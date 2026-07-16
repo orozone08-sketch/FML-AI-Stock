@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from app.core.company_context import ACTIVE_COMPANY_SESSION_KEY
 from app.models import Company, Customer
 
@@ -256,6 +258,21 @@ def test_item_lines_keep_dropdown_and_add_typing_search(client):
     assert 'name="item_id[]"' in html
     assert 'data-item-open' in html
     assert "Select or type item" in html
+
+
+def test_transaction_line_script_uses_form_grid_and_fresh_asset_version(client):
+    login(client)
+    response = client.get("/transactions/sale")
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert 'data-line-grid' in html
+    assert 'data-add-line' in html
+    assert 'static/js/app.js?v=20260716-1' in html
+
+    source = (client.application.root_path / Path("static/js/app.js")).read_text(encoding="utf-8")
+    assert 'form && form.querySelector("[data-line-grid]")' in source
+    assert 'add.previousElementSibling' not in source
 
 
 def test_master_sidebar_marks_only_current_menu_active(client):

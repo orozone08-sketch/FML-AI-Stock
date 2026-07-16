@@ -82,7 +82,11 @@ document.addEventListener("click", async (event) => {
 
   const add = event.target.closest("[data-add-line]");
   if (add) {
-    const grid = add.previousElementSibling;
+    // Keep the control resilient to template wrappers/whitespace. Every
+    // transaction form owns one line grid; relying on the previous sibling
+    // made the button silently stop working when markup was rearranged.
+    const form = add.closest("form");
+    const grid = form && form.querySelector("[data-line-grid]");
     const row = grid && grid.querySelector(".line-row");
     if (grid && row) {
       const clone = row.cloneNode(true);
@@ -95,9 +99,9 @@ document.addEventListener("click", async (event) => {
       clone.classList.add("row-enter");
       grid.appendChild(clone);
       initializeItemPickers(clone);
-      syncTransactionGstFields(add.closest("form"));
+      syncTransactionGstFields(form);
       updateLineTotal(clone);
-      updateDocumentTotal(add.closest("form"));
+      updateDocumentTotal(form);
       playTone("add");
       window.setTimeout(() => clone.classList.remove("row-enter"), 220);
     }
