@@ -66,7 +66,11 @@ async function playTone(kind) {
 document.addEventListener("click", async (event) => {
   const addLine = event.target.closest("[data-add-line]");
   if (addLine) {
-    const table = addLine.previousElementSibling?.matches("#lines") ? addLine.previousElementSibling : addLine.closest("form")?.querySelector("#lines");
+    // Scope the editor to the button's form. Opening balances render more than
+    // one line editor, so a document-wide id lookup can clone into the wrong
+    // table and markup wrappers must not make the button stop working.
+    const form = addLine.closest("form");
+    const table = form?.querySelector("[data-line-grid]");
     const template = table?.querySelector("tbody [data-line-row]");
     if (template) {
       const row = template.cloneNode(true);
@@ -97,45 +101,6 @@ document.addEventListener("click", async (event) => {
     if (input) {
       input.type = input.type === "password" ? "text" : "password";
       toggle.textContent = input.type === "password" ? "Show" : "Hide";
-    }
-  }
-
-  const add = event.target.closest("[data-add-line]");
-  if (add) {
-    const grid = add.previousElementSibling;
-    const row = grid && grid.querySelector(".line-row");
-    if (grid && row) {
-      const clone = row.cloneNode(true);
-      clone.querySelectorAll("input").forEach((input) => (input.value = ""));
-      clone.querySelectorAll("output").forEach((output) => (output.textContent = "₹0.00"));
-      clone.querySelectorAll("[data-item-picker], [data-option-picker]").forEach((picker) => {
-        delete picker.dataset.itemPickerReady;
-        delete picker.dataset.optionPickerReady;
-      });
-      clone.classList.add("row-enter");
-      grid.appendChild(clone);
-      initializeItemPickers(clone);
-      syncTransactionGstFields(add.closest("form"));
-      updateLineTotal(clone);
-      updateDocumentTotal(add.closest("form"));
-      playTone("add");
-      window.setTimeout(() => clone.classList.remove("row-enter"), 220);
-    }
-  }
-
-  const remove = event.target.closest("[data-remove-line]");
-  if (remove) {
-    const grid = remove.closest("[data-line-grid]");
-    const rows = grid.querySelectorAll(".line-row");
-    if (rows.length > 1) {
-      const row = remove.closest(".line-row");
-      row.classList.add("row-exit");
-      playTone("remove");
-      window.setTimeout(() => {
-        const form = grid.closest("form");
-        row.remove();
-        updateDocumentTotal(form);
-      }, 150);
     }
   }
 

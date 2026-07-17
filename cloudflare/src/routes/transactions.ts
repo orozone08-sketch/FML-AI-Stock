@@ -187,7 +187,7 @@ function lineEditor(items: Row[], existing: Row[] = []): string {
         `<tr data-line-row><td>${select("item_id[]", items, line.item_id)}</td><td><input name="quantity[]" value="${line.quantity_milliunits ? Number(line.quantity_milliunits) / 1000 : ""}" required></td><td><input name="rate[]" value="${line.rate_ten_thousandths ? Number(line.rate_ten_thousandths) / 10000 : "0"}"></td><td><input name="gst_percent[]" value="${line.gst_basis_points ? Number(line.gst_basis_points) / 100 : "0"}"></td><td><input name="line_remarks[]"><button type="button" data-remove-line aria-label="Remove line">Remove</button></td></tr>`,
     )
     .join("");
-  return `<table id="lines"><thead><tr><th>Item</th><th>Quantity</th><th>Rate</th><th>GST %</th><th>Remarks</th></tr></thead><tbody>${rows}</tbody></table><button type="button" data-add-line>Add line</button>`;
+  return `<table id="lines" data-line-grid><thead><tr><th>Item</th><th>Quantity</th><th>Rate</th><th>GST %</th><th>Remarks</th></tr></thead><tbody>${rows}</tbody></table><button type="button" data-add-line>Add line</button>`;
 }
 
 async function listPage(c: AppContext, kind: keyof typeof specs) {
@@ -265,7 +265,7 @@ async function documentForm(
 
 function pendingLineEditor(items: Row[], existing: Row[] = []): string {
   const source = existing.length ? existing : [{ item_id: "", quantity_milliunits: "" }];
-  return `<table id="lines"><thead><tr><th>Item</th><th>Quantity</th><th></th></tr></thead><tbody>${source.map((line) => `<tr data-line-row><td>${select("item_id[]", items, line.item_id)}</td><td><input name="quantity[]" value="${line.quantity_milliunits ? Number(line.quantity_milliunits) / 1000 : ""}" required></td><td><button type="button" data-remove-line aria-label="Remove line">Remove</button></td></tr>`).join("")}</tbody></table><button type="button" data-add-line>Add line</button>`;
+  return `<table id="lines" data-line-grid><thead><tr><th>Item</th><th>Quantity</th><th></th></tr></thead><tbody>${source.map((line) => `<tr data-line-row><td>${select("item_id[]", items, line.item_id)}</td><td><input name="quantity[]" value="${line.quantity_milliunits ? Number(line.quantity_milliunits) / 1000 : ""}" required></td><td><button type="button" data-remove-line aria-label="Remove line">Remove</button></td></tr>`).join("")}</tbody></table><button type="button" data-add-line>Add line</button>`;
 }
 
 async function pendingStockForm(c: AppContext): Promise<string> {
