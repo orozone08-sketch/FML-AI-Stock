@@ -319,7 +319,7 @@ auth.get("/admin/login", async (c) => {
     withPublicCsrf(
       authLayout(
         "Owner / Admin Login",
-        `<div class="auth-panel-head"><span class="auth-kicker">Administration</span><h2>Owner / admin login</h2></div><form class="login-card auth-login-card" method="post">${formField("email", "Login ID", "", "email", true)}${formField("password", "Password", "", "password", true)}<label class="checkbox-line"><input type="checkbox" name="remember" value="1"><span>Remember me</span></label><button class="primary-button full">Sign in securely</button><a class="secondary-button center-button" href="/login">Back to company selection</a></form>`,
+        `<div class="auth-panel-head"><span class="auth-kicker">Administration</span><h2>Owner / admin login</h2></div><form class="login-card auth-login-card" method="post"><label class="form-field">Login ID<input type="text" name="email" value="" autocomplete="username" required autofocus></label>${formField("password", "Password", "", "password", true)}<label class="checkbox-line"><input type="checkbox" name="remember" value="1"><span>Remember me</span></label><button class="primary-button full">Sign in securely</button><a class="secondary-button center-button" href="/login">Back to company selection</a></form>`,
       ),
       csrf,
     ),

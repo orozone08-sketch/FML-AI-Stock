@@ -78,6 +78,15 @@ beforeEach(async () => {
 });
 
 describe("authenticated route integration", () => {
+  it("allows username-style IDs on the owner/admin login form", async () => {
+    const response = await app.request("https://example.test/admin/login", {}, currentEnv);
+    expect(response.status).toBe(200);
+    const html = await response.text();
+    expect(html).toContain('type="text" name="email"');
+    expect(html).toContain('autocomplete="username"');
+    expect(html).not.toContain('type="email" name="email"');
+  });
+
   it("redirects unauthenticated HTML requests without touching business tables", async () => {
     const response = await app.request("https://example.test/dashboard", {}, currentEnv);
     expect(response.status).toBe(303);
