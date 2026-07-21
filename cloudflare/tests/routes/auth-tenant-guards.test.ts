@@ -57,6 +57,7 @@ class GuardDb {
     if (query.includes("FROM permission_overrides")) return this.overrides;
     if (query.includes("FROM payment_allocations WHERE payment_id")) return [{ target_id: 30 }];
     if (query.includes("FROM receivables") && query.includes("JOIN companies")) return [{ id: 30, document_number: "R-30", balance_amount_paise: 0, company_code: "C1" }];
+    if (query.includes("FROM payments p JOIN companies")) return [{ id: 10, payment_date: "2026-07-15", payment_type: "CUSTOMER_RECEIPT", party: "Customer Three", company: "C1", mode: "BANK", reference_number: "PAY-REFERENCE-10", total_amount_paise: 1000, allocated_amount_paise: 1000, unallocated_amount_paise: 0 }];
     if (query.includes("FROM customers") && query.includes("active=1")) return [{ id: 3, code: "CU3", name: "Customer Three" }];
     if (query.includes("FROM companies WHERE active=1")) return !query.includes("id=?") || Number(params[0]) === 1 ? [{ id: 1, code: "C1", name: "Company One" }] : [];
     return [];
@@ -229,6 +230,13 @@ describe("action permissions and active-company isolation", () => {
     const html=await (await request("/finance/payments")).text();
     expect(html).toContain('<select name="company_id" required>');
     expect(html).not.toContain('<input type="hidden" name="company_id" value="">');
+  });
+
+  it("renders payment references so records can be identified and maintained", async () => {
+    const html=await (await request("/finance/payments")).text();
+    expect(html).toContain("<th>Reference</th>");
+    expect(html).toContain("PAY-REFERENCE-10");
+    expect(html).toContain('href="/finance/payments/10/edit"');
   });
 
   it("keeps global user administration unscoped after selecting a workspace",async()=>{

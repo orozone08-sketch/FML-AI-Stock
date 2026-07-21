@@ -108,6 +108,7 @@ finance.get("/payments", async (c) => {
     escapeHtml(r.payment_type),
     escapeHtml(r.party),
     escapeHtml(r.mode),
+    escapeHtml(r.reference_number),
     `₹${money(r.total_amount_paise)}`,
     `₹${money(r.allocated_amount_paise)}`,
     `₹${money(r.unallocated_amount_paise)}`,
@@ -116,7 +117,7 @@ finance.get("/payments", async (c) => {
   return c.html(
     layout(
       "Payments",
-      `${can(user, "payments", "create") ? `<details><summary>Customer receipt</summary>${await paymentForm(c, "customer")}</details><details><summary>Supplier payment</summary>${await paymentForm(c, "supplier")}</details>` : ""}${table(["Date", "Company", "Type", "Party", "Mode", "Amount", "Allocated", "Advance", "Actions"], rows)}`,
+      `${can(user, "payments", "create") ? `<details><summary>Customer receipt</summary>${await paymentForm(c, "customer")}</details><details><summary>Supplier payment</summary>${await paymentForm(c, "supplier")}</details>` : ""}${table(["Date", "Company", "Type", "Party", "Mode", "Reference", "Amount", "Allocated", "Advance", "Actions"], rows)}`,
       user,
     ),
   );

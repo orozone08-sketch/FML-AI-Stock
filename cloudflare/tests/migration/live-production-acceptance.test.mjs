@@ -29,6 +29,11 @@ test("production acceptance has reverse cleanup and independent residue verifica
     assert.ok(workflow.includes(table), `missing residue check: ${table}`);
 });
 
+test("production acceptance resolves created payments by their rendered reference", () => {
+  assert.match(script, /documentId\(await page\("\/finance\/payments"/);
+  assert.match(script, /const reference = `\$\{prefix\}-PAY`/);
+});
+
 test("production acceptance covers session CSRF, idempotency, and R2 read variants", () => {
   for (const marker of ["fastock_public_csrf", "fastock_csrf", "idempotency_key", 'method: "HEAD"', "Range: \"bytes=3-11\"", 'method: "DELETE"'])
     assert.ok(script.includes(marker), `missing acceptance marker: ${marker}`);
