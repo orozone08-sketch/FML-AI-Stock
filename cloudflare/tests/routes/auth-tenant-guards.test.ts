@@ -234,9 +234,19 @@ describe("action permissions and active-company isolation", () => {
 
   it("renders payment references so records can be identified and maintained", async () => {
     const html=await (await request("/finance/payments")).text();
+    expect(html).toContain('<section class="grid two">');
+    expect(html).toContain('<form method="post" action="/finance/payments/customer-receipt" class="form-stack">');
+    expect(html).toContain('<form method="post" action="/finance/payments/supplier-payment" class="form-stack">');
+    expect(html).toContain("Recent Payments");
     expect(html).toContain("<th>Reference</th>");
+    expect(html).toContain("<th>Created By</th>");
     expect(html).toContain("PAY-REFERENCE-10");
+    expect(html).toContain('href="/finance/payments/10/export/pdf"');
+    expect(html).toContain('href="/finance/payments/10/export/xlsx"');
     expect(html).toContain('href="/finance/payments/10/edit"');
+    const list=db.statements.find(statement=>statement.query.includes("FROM payments p JOIN companies"));
+    expect(list?.query).toContain("LIMIT ? OFFSET ?");
+    expect(list?.params.slice(-2)).toEqual([51,0]);
   });
 
   it("keeps global user administration unscoped after selecting a workspace",async()=>{
@@ -289,6 +299,7 @@ describe("action permissions and active-company isolation", () => {
   });
 
   it("bounds eager form option reads and exposes server-side option search", async () => {
+    db.statements.length = 0;
     await request("/finance/payments/10/edit?party_q=acme");
     await request("/transactions/purchase/10/edit?option_q=bolt");
     const optionReads = db.statements.filter((statement) => /FROM (customers|suppliers|items|receivables|payables)/.test(statement.query));
@@ -320,12 +331,12 @@ describe("permission override administration", () => {
     db.overrides = [{ module: "sale", can_edit: 0 }];
     const form = await request("/users/7/edit");
     expect(form.status).toBe(200);
-    expect(await form.text()).toMatch(/name="perm_sale_edit"[\s\S]*?<option value="0" selected>Deny<\/option>/);
+    expect(await form.text()).toMatch(/name="perm__sale__edit"[\s\S]*?<option value="deny" selected>Deny<\/option>/);
 
     db.writes.length = 0;
     const saved = await request("/users/7/edit", {
       method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: "csrf_token=csrf-token&name=Guard+Tester&email=guard%40example.test&company_id=1&role=VIEWER&active=1&perm_sale_edit=0",
+      body: "csrf_token=csrf-token&name=Guard+Tester&email=guard%40example.test&company_id=1&role=VIEWER&active=1&perm__sale__edit=deny",
     });
     expect(saved.status).toBe(303);
     const override = db.writes.find((statement) => statement.query.startsWith("INSERT INTO permission_overrides") && statement.params[1] === "sale");

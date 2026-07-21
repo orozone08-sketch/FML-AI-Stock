@@ -148,26 +148,32 @@ async function options(db: D1Database, companyId: number | null, kind: Transacti
   const bookScope = companyId ? " AND company_id=?" : "";
   const statements = [
     searchable(db, "companies", "id,code,name", sourceScope, companyId ? [companyId] : [], search, [sourceCompany]),
-    searchable(db, "stock_books", "id,code,name,company_id", bookScope, companyId ? [companyId] : [], search, [sourceBook]),
+    searchable(db, "stock_books", "id,code,name,company_id,book_type", bookScope, companyId ? [companyId] : [], search, [sourceBook]),
     searchable(db, "items", "id,code,name,unit", "", [], search, selectedItems),
   ];
   if (kind === "purchase" && includeParty) statements.push(searchable(db, "suppliers", "id,code,name", "", [], search, [Number(document.supplier_id)]));
   if (kind === "sale" && includeParty) statements.push(searchable(db, "customers", "id,code,name", "", [], search, [Number(document.customer_id)]));
   if (kind === "transfer") {
     statements.push(searchable(db, "companies", "id,code,name", "", [], search, [Number(document.to_company_id)]));
-    statements.push(searchable(db, "stock_books", "id,code,name,company_id", "", [], search, [Number(document.to_stock_book_id)]));
+    statements.push(searchable(db, "stock_books", "id,code,name,company_id,book_type", "", [], search, [Number(document.to_stock_book_id)]));
   }
   const results = await db.batch(statements);
   return results.map((result) => (result.results ?? []) as Row[]);
 }
 
 const select = (name: string, rows: Row[], selected: unknown = null): string =>
-  `<select name="${name}" required><option value="">Choose</option>${rows.map((row) => `<option value="${row.id}" ${Number(row.id) === Number(selected) ? "selected" : ""}>${escapeHtml(row.code)} — ${escapeHtml(row.name)}</option>`).join("")}</select>`;
+  `<select name="${name}" required><option value="">Choose</option>${rows.map((row) => `<option value="${row.id}"${row.company_id != null ? ` data-company-id="${escapeHtml(row.company_id)}"` : ""}${row.book_type != null ? ` data-book-type="${escapeHtml(row.book_type)}"` : ""} ${Number(row.id) === Number(selected) ? "selected" : ""}>${escapeHtml(row.code)} - ${escapeHtml(row.name)}</option>`).join("")}</select>`;
 const optionalSelect = (name: string, rows: Row[], selected: unknown = null): string =>
   `<select name="${name}"><option value="">Not specified</option>${rows.map((row) => `<option value="${row.id}" ${Number(row.id) === Number(selected) ? "selected" : ""}>${escapeHtml(row.code)} — ${escapeHtml(row.name)}</option>`).join("")}</select>`;
 const transactionTypeSelect = (selected: unknown): string => {
   const value = String(selected ?? "GST").toUpperCase();
   return `<select name="document_type"><option value="GST" ${value === "GST" ? "selected" : ""}>GST</option><option value="CASH" ${value === "CASH" ? "selected" : ""}>CASH</option></select>`;
+};
+
+const itemPicker = (items: Row[], selected: unknown = null): string => {
+  const current = items.find((item) => Number(item.id) === Number(selected));
+  const display = current ? `${current.code} - ${current.name}` : "";
+  return `<div class="item-combobox" data-item-picker><input name="item_search[]" type="text" value="${escapeHtml(display)}" placeholder="Select or type item" autocomplete="off" required data-item-search><input name="item_id[]" type="hidden" value="${escapeHtml(selected ?? "")}" data-item-value><button type="button" class="item-combobox-button" data-item-open aria-label="Show item list"></button><datalist data-item-options>${items.map((item) => `<option value="${escapeHtml(`${item.code} - ${item.name}`)}" data-item-id="${escapeHtml(item.id)}"></option>`).join("")}</datalist></div>`;
 };
 
 function lineEditor(items: Row[], existing: Row[] = []): string {
@@ -181,13 +187,11 @@ function lineEditor(items: Row[], existing: Row[] = []): string {
           gst_basis_points: "",
         },
       ];
-  const rows = source
-    .map(
-      (line) =>
-        `<tr data-line-row><td>${select("item_id[]", items, line.item_id)}</td><td><input name="quantity[]" value="${line.quantity_milliunits ? Number(line.quantity_milliunits) / 1000 : ""}" required></td><td><input name="rate[]" value="${line.rate_ten_thousandths ? Number(line.rate_ten_thousandths) / 10000 : "0"}"></td><td><input name="gst_percent[]" value="${line.gst_basis_points ? Number(line.gst_basis_points) / 100 : "0"}"></td><td><input name="line_remarks[]"><button type="button" data-remove-line aria-label="Remove line">Remove</button></td></tr>`,
+  const rows = source.map((line) =>
+    `<div class="line-row" data-line-row>${itemPicker(items, line.item_id)}<input name="quantity[]" type="number" step="0.001" min="0" value="${line.quantity_milliunits ? Number(line.quantity_milliunits) / 1000 : ""}" required><input name="rate[]" type="number" step="0.0001" min="0" value="${line.rate_ten_thousandths ? Number(line.rate_ten_thousandths) / 10000 : "0"}" required><input name="gst_percent[]" type="number" step="0.01" min="0" value="${line.gst_basis_points ? Number(line.gst_basis_points) / 100 : "0"}"><output class="line-total-preview">₹0.00</output><button type="button" class="icon-button" data-remove-line aria-label="Remove line">×</button></div>`,
     )
     .join("");
-  return `<table id="lines" data-line-grid><thead><tr><th>Item</th><th>Quantity</th><th>Rate</th><th>GST %</th><th>Remarks</th></tr></thead><tbody>${rows}</tbody></table><button type="button" data-add-line>Add line</button>`;
+  return `<div class="line-grid" data-line-grid><div class="line-grid-head"><span>Item</span><span>Quantity</span><span>Rate</span><span>GST %</span><span>Total</span><span></span></div><div data-line-rows>${rows}</div></div><button type="button" class="secondary-button" data-add-line>Add line</button>`;
 }
 
 async function listPage(c: AppContext, kind: keyof typeof specs) {
@@ -260,12 +264,17 @@ async function documentForm(
   const transferFields = kind === "transfer"
     ? `<label>Reason<input name="reason" value="${escapeHtml(document.reason ?? "")}"></label><label><input type="checkbox" name="mismatch_approved" value="1" ${document.mismatch_approved ? "checked" : ""}> Approve mismatch</label><label>Approval reason<textarea name="approval_reason">${escapeHtml(document.approval_reason ?? "")}</textarea></label>`
     : "";
-  return `<form method="get" class="option-search"><label>Find options<input name="option_q" value="${escapeHtml(search)}" placeholder="Code or name"></label><button>Search</button></form><form method="post"><input type="hidden" name="csrf_token" value="${escapeHtml(user.csrfToken)}"><input type="hidden" name="idempotency_key" value="${randomToken(16)}"><label>Company${select(kind === "transfer" ? "from_company_id" : "company_id", companies, companyValue ?? user.activeCompanyId)}</label><label>Stock book${select(kind === "transfer" ? "from_stock_book_id" : "stock_book_id", books, document.stock_book_id ?? document.from_stock_book_id)}</label>${partyField}${kind === "transfer" ? `<label>To stock book${select("to_stock_book_id", destinationBooks, document.to_stock_book_id)}</label>` : ""}<label>Reference<input name="reference_number" value="${escapeHtml(document[spec.number] ?? "")}" required></label><label>Date<input type="date" name="document_date" value="${escapeHtml(document[spec.date] ?? new Date().toISOString().slice(0, 10))}" required></label>${dueDate}${kind !== "transfer" && !openingStock ? `<label>Type${transactionTypeSelect(document.document_type ?? document.purchase_type ?? document.sale_type)}</label>` : ""}${transferFields}${lineEditor(items, existingLines)}<label>Remarks<textarea name="remarks">${escapeHtml(document.remarks ?? "")}</textarea></label><button>Save</button></form>`;
+  const refId = openingStock ? "opening_ref" : kind === "purchase" ? "bill_number" : kind === "sale" ? "invoice_number" : "transfer_ref";
+  const dateName = openingStock ? "opening_date" : kind === "purchase" ? "bill_date" : kind === "sale" ? "invoice_date" : "transfer_date";
+  const typeName = kind === "purchase" ? "purchase_type" : "sale_type";
+  const typeValue = document.document_type ?? document.purchase_type ?? document.sale_type;
+  const lineBlock = kind === "transfer" ? pendingLineEditor(items, existingLines) : lineEditor(items, existingLines);
+  return `<form method="get" class="option-search"><label>Find options<input name="option_q" value="${escapeHtml(search)}" placeholder="Code or name"></label><button class="secondary-button">Search</button></form><section class="panel"><form method="post" class="form-grid wide"><input type="hidden" name="csrf_token" value="${escapeHtml(user.csrfToken)}"><input type="hidden" name="idempotency_key" value="${randomToken(16)}"><label>${kind === "transfer" ? "From company" : "Company"}${select(kind === "transfer" ? "from_company_id" : "company_id", companies, companyValue ?? user.activeCompanyId)}</label><label>${kind === "transfer" ? "From stock book" : "Stock book"}${select(kind === "transfer" ? "from_stock_book_id" : "stock_book_id", books, document.stock_book_id ?? document.from_stock_book_id)}</label>${partyField}${kind === "transfer" ? `<label>To stock book${select("to_stock_book_id", destinationBooks, document.to_stock_book_id)}</label>` : ""}${kind !== "transfer" && !openingStock ? `<label>${kind === "purchase" ? "Purchase" : "Sale"} type${transactionTypeSelect(typeValue).replace('name="document_type"', `name="${typeName}"`)}</label>` : ""}<label>${openingStock ? "Reference" : kind === "purchase" ? "Bill number" : kind === "sale" ? "Invoice number" : "Reference"}<span class="input-action"><input id="${refId}" name="${openingStock || kind === "transfer" ? "reference_number" : kind === "purchase" ? "bill_number" : "invoice_number"}" value="${escapeHtml(document[spec.number] ?? "")}" required><button type="button" data-auto-ref="${openingStock ? "opening_stock" : kind}" data-target="#${refId}">Auto</button></span></label><label>${openingStock ? "Opening date" : kind === "purchase" ? "Bill date" : kind === "sale" ? "Invoice date" : "Transfer date"}<input type="date" name="${dateName}" value="${escapeHtml(document[spec.date] ?? new Date().toISOString().slice(0, 10))}" required></label>${dueDate}${transferFields}<label class="full-span">Remarks<textarea name="remarks">${escapeHtml(document.remarks ?? "")}</textarea></label><div class="full-span">${lineBlock}</div><div class="form-actions full-span"><button class="primary-button">Save ${openingStock ? "Opening Stock" : kind[0]!.toUpperCase() + kind.slice(1)}</button></div></form></section>`;
 }
 
 function pendingLineEditor(items: Row[], existing: Row[] = []): string {
   const source = existing.length ? existing : [{ item_id: "", quantity_milliunits: "" }];
-  return `<table id="lines" data-line-grid><thead><tr><th>Item</th><th>Quantity</th><th></th></tr></thead><tbody>${source.map((line) => `<tr data-line-row><td>${select("item_id[]", items, line.item_id)}</td><td><input name="quantity[]" value="${line.quantity_milliunits ? Number(line.quantity_milliunits) / 1000 : ""}" required></td><td><button type="button" data-remove-line aria-label="Remove line">Remove</button></td></tr>`).join("")}</tbody></table><button type="button" data-add-line>Add line</button>`;
+  return `<div class="line-grid transfer" data-line-grid><div class="line-grid-head"><span>Item</span><span>Quantity</span><span></span></div><div data-line-rows>${source.map((line) => `<div class="line-row" data-line-row>${itemPicker(items, line.item_id)}<input name="quantity[]" type="number" step="0.001" min="0" value="${line.quantity_milliunits ? Number(line.quantity_milliunits) / 1000 : ""}" required><button type="button" class="icon-button" data-remove-line aria-label="Remove line">×</button></div>`).join("")}</div></div><button type="button" class="secondary-button" data-add-line>Add line</button>`;
 }
 
 async function pendingStockForm(c: AppContext): Promise<string> {
@@ -303,9 +312,9 @@ for (const kind of Object.keys(specs) as Array<keyof typeof specs>) {
       stockBookId: Number(
         body[kind === "transfer" ? "from_stock_book_id" : "stock_book_id"],
       ),
-      referenceNumber: String(body.reference_number ?? ""),
-      date: String(body.document_date ?? ""),
-      documentType: String(body.document_type ?? "GST"),
+      referenceNumber: String(body.reference_number ?? body.bill_number ?? body.invoice_number ?? ""),
+      date: String(body.document_date ?? body.bill_date ?? body.invoice_date ?? body.transfer_date ?? ""),
+      documentType: String(body.document_type ?? body.purchase_type ?? body.sale_type ?? "GST"),
       dueDate: String(body.due_date ?? "") || undefined,
       remarks: String(body.remarks ?? ""),
       lines: lines(body),
@@ -377,9 +386,9 @@ for (const kind of Object.keys(specs) as Array<keyof typeof specs>) {
       stockBookId: Number(
         body[kind === "transfer" ? "from_stock_book_id" : "stock_book_id"],
       ),
-      referenceNumber: String(body.reference_number ?? ""),
-      date: String(body.document_date ?? ""),
-      documentType: String(body.document_type ?? "GST"),
+      referenceNumber: String(body.reference_number ?? body.bill_number ?? body.invoice_number ?? ""),
+      date: String(body.document_date ?? body.bill_date ?? body.invoice_date ?? body.transfer_date ?? ""),
+      documentType: String(body.document_type ?? body.purchase_type ?? body.sale_type ?? "GST"),
       dueDate: String(body.due_date ?? "") || undefined,
       remarks: String(body.remarks ?? ""),
       lines: lines(body),
@@ -454,7 +463,7 @@ async function entryOutput(
     ]);
     const company=related[0]?.results?.[0] as Row|undefined,customer=related[1]?.results?.[0] as Row|undefined;if(!company||!customer)return c.notFound();
     const invoice=saleInvoiceModel(doc,company,customer,rows);
-    if(fmt==="html")return c.html(layout(`Tax Invoice ${doc.invoice_number}`,saleInvoiceHtml(invoice),c.get("user"),{scripts:c.req.path.endsWith("/print")?"<span hidden data-auto-print></span>":""}));
+    if(fmt==="html")return c.html(saleInvoiceHtml(invoice,{saleId:id,autoPrint:c.req.path.endsWith("/print")}));
     if(fmt==="pdf")return new Response(toPdf(`Tax Invoice ${doc.invoice_number}`,saleInvoicePdfRows(invoice)),{headers:{"content-type":"application/pdf","content-disposition":`attachment; filename=sale-${id}.pdf`}});
   }
   if (fmt !== "html") {
@@ -526,7 +535,7 @@ transactions.get("/opening", async (c) => {
 });
 transactions.get("/opening/stock/new", async (c) =>
   can(c.get("user"), "opening", "create") ? c.html(
-    layout("Opening Stock", (await documentForm(c, "purchase", {}, [], true)).replace('<form method="post">', '<form method="post" action="/transactions/opening/stock">'), c.get("user")),
+    layout("Opening Stock", (await documentForm(c, "purchase", {}, [], true)).replace('<form method="post" class="form-grid wide">', '<form method="post" action="/transactions/opening/stock" class="form-grid wide">'), c.get("user")),
   ) : c.text("Forbidden", 403),
 );
 transactions.get("/opening/pending-stock/new", async (c) => can(c.get("user"), "opening", "create")

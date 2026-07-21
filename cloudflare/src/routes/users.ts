@@ -20,10 +20,17 @@ users.get("/", async (c) => {
   const actor = c.get("user")!; if (!can(actor, "users")) return c.text("Forbidden", 403);
   const scoped = actorScope(actor);
   const query = scoped
-    ? c.env.DB.prepare("SELECT u.id,u.name,u.email,u.role,u.active,c.code company FROM users u LEFT JOIN companies c ON c.id=u.company_id WHERE u.company_id=? ORDER BY u.active DESC,u.name LIMIT 100").bind(scoped)
-    : c.env.DB.prepare("SELECT u.id,u.name,u.email,u.role,u.active,c.code company FROM users u LEFT JOIN companies c ON c.id=u.company_id ORDER BY u.active DESC,u.name LIMIT 100");
-  const rows = (await query.all<Record<string, unknown>>()).results.map((row) => [escapeHtml(row.name), escapeHtml(row.email), escapeHtml(row.company ?? "All"), escapeHtml(row.role), row.active ? "Active" : "Inactive", `${can(actor, "users", "edit") ? `<a href="/users/${row.id}/edit">Edit</a>` : ""}${row.active && can(actor, "users", "deactivate") && Number(row.id) !== actor.id ? ` <form class="inline-form" method="post" action="/users/${row.id}/deactivate"><input type="hidden" name="csrf_token" value="${escapeHtml(actor.csrfToken)}"><button type="submit">Deactivate</button></form>` : ""}`]);
-  return c.html(layout("Users", `${can(actor, "users", "create") ? '<p><a class="button" href="/users/new">New user</a></p>' : ""}${table(["Name", "Login ID", "Company", "Role", "Status", "Actions"], rows)}`, actor));
+    ? c.env.DB.prepare("SELECT u.id,u.name,u.email,u.role,u.active,u.last_login_at,c.name company FROM users u LEFT JOIN companies c ON c.id=u.company_id WHERE u.company_id=? ORDER BY u.active DESC,u.name").bind(scoped)
+    : c.env.DB.prepare("SELECT u.id,u.name,u.email,u.role,u.active,u.last_login_at,c.name company FROM users u LEFT JOIN companies c ON c.id=u.company_id ORDER BY u.active DESC,u.name");
+  const rows = (await query.all<Record<string, unknown>>()).results.map((row) => [
+    escapeHtml(row.name), escapeHtml(row.email), escapeHtml(row.company ?? "Owner / all companies"), escapeHtml(row.role),
+    `<span class="status ${row.active ? "ok" : "muted"}">${row.active ? "Active" : "Inactive"}</span>`,
+    escapeHtml(row.last_login_at ?? ""),
+    `<span class="actions">${can(actor, "users", "edit") ? `<a href="/users/${row.id}/edit">Edit</a>` : ""}${row.active && can(actor, "users", "deactivate") ? ` <form method="post" action="/users/${row.id}/deactivate" data-confirm="Deactivate this user?"><input type="hidden" name="csrf_token" value="${escapeHtml(actor.csrfToken)}"><button class="link-button" type="submit">Deactivate</button></form>` : ""}</span>`,
+  ]);
+  const toolbar = `<div class="toolbar" data-live-search-form><input placeholder="Search users" autocomplete="off" data-live-search data-live-target="#users_table"><button class="secondary-button" type="button" data-live-find>Find</button>${can(actor, "users", "create") ? '<a class="primary-button" href="/users/new">Add user</a>' : ""}</div>`;
+  const usersTable = table(["Name", "Login ID", "Company", "Role", "Status", "Last login", "Actions"], rows).replace("<table>", '<table id="users_table">');
+  return c.html(layout("Users", `<section class="panel">${toolbar}${usersTable.replace('<section class="panel">', "").replace("</section>", "")}</section>`, actor, { subtitle: "Manage staff logins, roles, status, and password resets." }));
 });
 
 async function companyOptions(db: D1Database, selected: unknown, scoped: number | null): Promise<string> {
@@ -33,17 +40,20 @@ async function companyOptions(db: D1Database, selected: unknown, scoped: number 
 
 type AppContext = Context<{ Bindings: Env; Variables: AppVariables }>;
 
-async function userForm(c: AppContext, row: Record<string, unknown> = {}, permissionRows: Row[] = []): Promise<string> {
+async function userForm(c: AppContext, row: Record<string, unknown> = {}, permissionRecords: Row[] = []): Promise<string> {
   const actor = c.get("user")!;
   const selectedRole = row.role ?? "VIEWER";
   const roles = ROLES.map((role) => `<option ${selectedRole === role ? "selected" : ""}>${role}</option>`).join("");
-  const byModule = new Map(permissionRows.map((permission) => [String(permission.module), permission]));
-  const overrides = MODULES.map((module) => `<fieldset><legend>${escapeHtml(module)}</legend>${ACTIONS.map((action) => {
-    const current = byModule.get(module)?.[`can_${action}`];
-    return `<label>${action}<select name="perm_${module}_${action}"><option value="" ${current == null ? "selected" : ""}>Inherit role</option><option value="1" ${current === 1 || current === true ? "selected" : ""}>Allow</option><option value="0" ${current === 0 || current === false ? "selected" : ""}>Deny</option></select></label>`;
-  }).join("")}</fieldset>`).join("");
+  const byModule = new Map(permissionRecords.map((permission) => [String(permission.module), permission]));
   const scoped = actorScope(actor);
-  return layout(row.id ? "Edit User" : "New User", `<form method="post"><input type="hidden" name="csrf_token" value="${escapeHtml(actor.csrfToken)}">${formField("name", "Name", row.name, "text", true)}${formField("email", "Login ID", row.email, "email", true)}${formField("password", row.id ? "New password (optional)" : "Temporary password", "", "password", !row.id)}<label>Company<select name="company_id">${scoped ? "" : '<option value="">All companies</option>'}${await companyOptions(c.env.DB, row.company_id ?? scoped, scoped)}</select></label><label>Role<select name="role">${roles}</select></label><label><input type="checkbox" name="active" value="1" ${row.active !== 0 ? "checked" : ""}> Active</label><label><input type="checkbox" name="force_password_change" value="1" ${row.force_password_change ? "checked" : ""}> Force password change</label><details><summary>Permission overrides</summary><p>Each setting can inherit the selected role, or explicitly allow or deny the action.</p>${overrides}</details><button>Save</button></form>`, actor);
+  const permissionRows = MODULES.map((module) => `<tr><td>${escapeHtml(module)}</td>${ACTIONS.map((action) => {
+    const current = byModule.get(module)?.[`can_${action}`];
+    return `<td><select name="perm__${module}__${action}"><option value="" ${current == null ? "selected" : ""}>Inherit</option><option value="allow" ${current === 1 || current === true ? "selected" : ""}>Allow</option><option value="deny" ${current === 0 || current === false ? "selected" : ""}>Deny</option></select></td>`;
+  }).join("")}</tr>`).join("");
+  const companyControl = scoped
+    ? `<input type="hidden" name="company_id" value="${scoped}"><input value="Active company" disabled>`
+    : `<select name="company_id"><option value="" ${row.company_id ? "" : "selected"}>Owner / all companies</option>${await companyOptions(c.env.DB, row.company_id, null)}</select>`;
+  return layout(row.id ? "Edit User" : "Add User", `<section class="panel"><form method="post" class="form-grid"><input type="hidden" name="csrf_token" value="${escapeHtml(actor.csrfToken)}">${formField("name", "Name", row.name, "text", true)}${formField("email", "Login ID", row.email, "text", true)}<label>Company${companyControl}</label><label>Role<select name="role">${roles}</select></label>${formField("password", "Temporary/new password", "", "password", !row.id)}<label class="check"><input name="active" type="checkbox" value="1" ${row.active !== 0 ? "checked" : ""}> Active</label><label class="check"><input name="force_password_change" type="checkbox" value="1" ${row.force_password_change ? "checked" : ""}> Require password change</label><details class="full-span permission-box"><summary>Granular permission overrides</summary><p class="muted-copy">Leave blank to inherit the selected role. Use overrides only for exceptions.</p><div class="table-wrap"><table><thead><tr><th>Module</th>${ACTIONS.map((action) => `<th>${action[0]?.toUpperCase()}${action.slice(1)}</th>`).join("")}</tr></thead><tbody>${permissionRows}</tbody></table></div></details><div class="form-actions full-span"><a class="secondary-button" href="/users/">Cancel</a><button class="primary-button" type="submit">Save User</button></div></form></section>`, actor, { subtitle: "Passwords are hashed; deactivation preserves historical attribution." });
 }
 
 type Row = Record<string, unknown>;
@@ -52,8 +62,8 @@ function permissionStatements(c: AppContext, userId: number, body: Row): D1Prepa
   const statements: D1PreparedStatement[] = [c.env.DB.prepare("DELETE FROM permission_overrides WHERE user_id=?").bind(userId)];
   for (const module of MODULES) {
     const values = ACTIONS.map((action) => {
-      const value = String(body[`perm_${module}_${action}`] ?? "");
-      return value === "1" ? 1 : value === "0" ? 0 : null;
+      const value = String(body[`perm__${module}__${action}`] ?? "");
+      return value === "allow" ? 1 : value === "deny" ? 0 : null;
     });
     if (values.some((value) => value != null)) statements.push(c.env.DB.prepare(`INSERT INTO permission_overrides(user_id,module,${ACTIONS.map((action) => `can_${action}`).join(",")}) VALUES(?,?,?,?,?,?,?,?)`).bind(userId, module, ...values));
   }
@@ -84,8 +94,8 @@ async function save(c: AppContext, id?: number): Promise<Response> {
   const now = nowIso();
   if (id) {
     const existing = await c.env.DB.prepare(`SELECT role,active,company_id FROM users WHERE id=?${scoped ? " AND company_id=?" : ""}`).bind(id, ...(scoped ? [scoped] : [])).first<Record<string, unknown>>(); if (!existing) return c.notFound();
-    if (existing.role === "ADMIN" && (role !== "ADMIN" || body.active !== "1" || Number(existing.company_id) !== Number(companyId))) {
-      const count = await c.env.DB.prepare("SELECT COUNT(*) count FROM users WHERE role='ADMIN' AND active=1 AND id<>? AND company_id IS ?").bind(id, existing.company_id ?? null).first<{count:number}>();
+    if (existing.role === "ADMIN" && existing.company_id == null && (role !== "ADMIN" || body.active !== "1" || companyId != null)) {
+      const count = await c.env.DB.prepare("SELECT COUNT(*) count FROM users WHERE role='ADMIN' AND active=1 AND id<>? AND company_id IS NULL").bind(id).first<{count:number}>();
       if (Number(count?.count ?? 0) === 0) return c.text("The last active administrator cannot be removed", 409);
     }
     const statements = [c.env.DB.prepare("UPDATE users SET name=?,email=?,company_id=?,role=?,active=?,force_password_change=?,updated_at=?,updated_by_id=? WHERE id=?").bind(name,email,companyId,role,body.active === "1" ? 1 : 0,body.force_password_change === "1" ? 1 : 0,now,actor.id,id)];
@@ -107,8 +117,7 @@ users.post("/:id/edit", (c) => save(c, Number.parseInt(c.req.param("id"), 10)));
 users.post("/:id/deactivate", async (c) => {
   const actor = c.get("user")!; if (!can(actor,"users","deactivate")) return c.text("Forbidden",403);
   const scoped = actorScope(actor); const id = Number.parseInt(c.req.param("id"),10); const target = await c.env.DB.prepare(`SELECT role,company_id FROM users WHERE id=?${scoped ? " AND company_id=?" : ""}`).bind(id,...(scoped ? [scoped] : [])).first<Record<string,unknown>>(); if (!target) return c.notFound();
-  if (id === actor.id) return c.text("You cannot deactivate your own account",409);
-  if (target.role === "ADMIN") { const count = await c.env.DB.prepare("SELECT COUNT(*) count FROM users WHERE role='ADMIN' AND active=1 AND id<>? AND company_id IS ?").bind(id,target.company_id ?? null).first<{count:number}>(); if (!count?.count) return c.text("The last active administrator cannot be removed",409); }
+  if (target.role === "ADMIN" && target.company_id == null) { const count = await c.env.DB.prepare("SELECT COUNT(*) count FROM users WHERE role='ADMIN' AND active=1 AND id<>? AND company_id IS NULL").bind(id).first<{count:number}>(); if (!count?.count) return c.text("The last active administrator cannot be removed",409); }
   const now=nowIso(); await c.env.DB.batch([
     c.env.DB.prepare("UPDATE users SET active=0,updated_at=?,updated_by_id=? WHERE id=?").bind(now,actor.id,id),
     c.env.DB.prepare("INSERT INTO audit_logs(user_id,company_id,action,entity_type,entity_id,reference,created_at) VALUES(?,?,'deactivate','User',?,?,?)").bind(actor.id,target.company_id ?? null,String(id),"user deactivated",now),

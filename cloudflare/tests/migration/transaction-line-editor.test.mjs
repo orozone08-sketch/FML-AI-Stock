@@ -15,10 +15,17 @@ test("Cloudflare transaction line controls stay form-scoped and single-handled",
   assert.equal(script.match(/event\.target\.closest\("\[data-remove-line\]"\)/g)?.length, 1);
   assert.match(script, /const form = addLine\.closest\("form"\);/);
   assert.match(script, /form\?\.querySelector\("\[data-line-grid\]"\)/);
+  assert.match(script, /table\?\.querySelector\("\[data-line-rows\], tbody"\)/);
+  assert.match(script, /initializeItemPickers\(row\)/);
   assert.doesNotMatch(script, /addLine\.previousElementSibling/);
   assert.doesNotMatch(script, /add\.previousElementSibling/);
 
-  assert.equal((transactions.match(/<table id="lines" data-line-grid>/g) ?? []).length, 2);
+  assert.equal((transactions.match(/class="line-grid(?: transfer)?" data-line-grid/g) ?? []).length, 2);
   assert.match(transactions, /data-line-row/);
   assert.match(transactions, /data-remove-line/);
+  assert.match(transactions, /data-item-picker/);
+  assert.match(transactions, /data-item-search/);
+  assert.match(transactions, /line-total-preview/);
+  assert.match(transactions, /class="form-grid wide"/);
+  assert.match(transactions, /data-auto-ref/);
 });

@@ -10,7 +10,6 @@ import {
 import {
   createSession,
   clearSessionHeaders,
-  revokeSession,
   verifyCsrf,
 } from "../auth/session";
 import { authLayout, escapeHtml, formField } from "../views/html";
@@ -70,6 +69,14 @@ function withPublicCsrf(html: string, csrf: string): string {
   );
 }
 
+function standaloneAuthPage(title: string, card: string, message = "", category = "info"): string {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="login-message" content="${escapeHtml(message)}"><meta name="login-message-category" content="${escapeHtml(category)}"><title>${escapeHtml(title)}</title><script>(()=>{const theme=localStorage.getItem("fastockflow-theme");if(theme==="dark")document.documentElement.dataset.theme="dark";})();</script><link rel="icon" href="${assetPaths.icon}"><link rel="stylesheet" href="${assetPaths.css}"></head><body class="auth-body"><main class="login-page auth-page">${card}</main><script src="${assetPaths.js}"></script></body></html>`;
+}
+
+function adminLoginCard(message = "", category = "info"): string {
+  return `<form class="login-card auth-login-card" method="post"><div class="flash login-message ${escapeHtml(category)}" data-login-message ${message ? "" : "hidden"}>${escapeHtml(message)}</div><div class="login-brand"><span class="brand-mark large logo-mark"><img src="${assetPaths.icon}" alt="FAstockFlow"></span><div><h1>Owner Login</h1><p>Combined FirstTech and Aditya dashboard.</p></div></div><label>Admin login ID<input name="email" type="text" autocomplete="username" required autofocus></label><label>Password<span class="password-wrap"><input id="admin_password" name="password" type="password" autocomplete="current-password" required><button type="button" class="icon-button" data-toggle-password="#admin_password">Show</button></span></label><div class="auth-form-options"><label class="checkbox-line"><input name="remember" type="checkbox" value="1"><span>Remember me</span></label><button class="link-button auth-note-button" type="button" data-auth-note="Please contact the system owner to reset admin access.">Forgot password?</button></div><button class="primary-button full" type="submit">Login</button><a class="secondary-button full center-button" href="/login">Company login</a></form>`;
+}
+
 function setCookies(
   c: Parameters<typeof clearSessionHeaders>[0] extends never ? never : any,
   values: string[],
@@ -83,7 +90,7 @@ async function companies(
   return (
     await db
       .prepare(
-        "SELECT id,name,code FROM companies WHERE active=1 ORDER BY code LIMIT 20",
+        "SELECT id,name,code FROM companies WHERE active=1 ORDER BY code",
       )
       .all<Record<string, unknown>>()
   ).results;
@@ -317,10 +324,7 @@ auth.get("/admin/login", async (c) => {
   const csrf = await publicCsrf(c);
   return c.html(
     withPublicCsrf(
-      authLayout(
-        "Owner / Admin Login",
-        `<div class="auth-panel-head"><span class="auth-kicker">Administration</span><h2>Owner / admin login</h2></div><form class="login-card auth-login-card" method="post"><label class="form-field">Login ID<input type="text" name="email" value="" autocomplete="username" required autofocus></label>${formField("password", "Password", "", "password", true)}<label class="checkbox-line"><input type="checkbox" name="remember" value="1"><span>Remember me</span></label><button class="primary-button full">Sign in securely</button><a class="secondary-button center-button" href="/login">Back to company selection</a></form>`,
-      ),
+      standaloneAuthPage("Owner Login", adminLoginCard()),
       csrf,
     ),
   );
@@ -350,10 +354,7 @@ auth.post("/admin/login", async (c) => {
   await recordAttempt(c.env, c.req.raw, email, valid);
   if (!valid)
     return c.html(
-      authLayout(
-        "Owner / Admin Login",
-        `<div class="auth-panel-head"><span class="auth-kicker">Administration</span><h2>Access denied</h2><p>Invalid admin login ID or password.</p></div><a class="primary-button center-button" href="/admin/login">Try again</a>`,
-      ),
+      standaloneAuthPage("Owner Login", adminLoginCard("Invalid admin login ID or password.", "danger"), "Invalid admin login ID or password.", "danger"),
       401,
     );
   const session = await createSession(
@@ -428,16 +429,16 @@ auth.get("/register", async (c) => {
       c.get("user")!.forcePasswordChange ? "/change-password" : "/dashboard/",
       303,
     );
-  const options = (await companies(c.env.DB))
-    .map((row) => `<option value="${row.id}">${escapeHtml(row.name)}</option>`)
-    .join("");
+  const registrationCompanies = await companies(c.env.DB);
+  const options = registrationCompanies.map((row, index) => {
+    const code = String(row.code ?? "").toUpperCase();
+    const logo = code === "AI" ? assetPaths.adityaLogo : code === "FML" ? assetPaths.firsttechLogo : assetPaths.icon;
+    return `<label class="login-company-option"><input name="company_id" type="radio" value="${row.id}" required ${index === 0 ? "checked autofocus" : ""}><img src="${logo}" alt="${escapeHtml(row.name)}"><span>${escapeHtml(row.name)}</span><small>${escapeHtml(row.code)} company workspace</small></label>`;
+  }).join("");
   const csrf = await publicCsrf(c);
   return c.html(
     withPublicCsrf(
-      authLayout(
-        "Register",
-        `<div class="auth-panel-head"><span class="auth-kicker">Company access</span><h2>Register company user</h2></div><form class="login-card auth-login-card" method="post"><label class="form-field">Company<select name="company_id" required>${options}</select></label>${formField("name", "Name", "", "text", true)}${formField("email", "Login ID", "", "email", true)}${formField("password", "Password", "", "password", true)}${formField("confirm_password", "Confirm password", "", "password", true)}<button class="primary-button full">Register securely</button><a class="secondary-button center-button" href="/login">Back to company selection</a></form>`,
-      ),
+      standaloneAuthPage("Register User", `<form class="login-card login-card-wide auth-register-card" method="post"><div class="flash login-message" data-login-message hidden></div><div class="login-brand"><span class="brand-mark large logo-mark"><img src="${assetPaths.icon}" alt="FAstockFlow"></span><div><h1>Register User</h1><p>Create a company-specific login for stock and account entries.</p></div></div><div class="login-company-options" role="radiogroup" aria-label="Company">${options}</div><div class="login-field-grid"><label>Name<input name="name" type="text" value="" autocomplete="name" required></label><label>Login ID<input name="email" type="text" value="" autocomplete="username" required></label><label>Password<span class="password-wrap"><input id="register_password" name="password" type="password" autocomplete="new-password" required><button type="button" class="icon-button" data-toggle-password="#register_password">Show</button></span></label><label>Confirm password<span class="password-wrap"><input id="register_confirm_password" name="confirm_password" type="password" autocomplete="new-password" required><button type="button" class="icon-button" data-toggle-password="#register_confirm_password">Show</button></span></label></div><button class="primary-button full" type="submit">Create Login</button><a class="secondary-button full center-button" href="/login">Back to company login</a></form>`),
       csrf,
     ),
   );
@@ -514,7 +515,14 @@ auth.post("/register", async (c) => {
 
 auth.post("/logout", async (c) => {
   const user = c.get("user");
-  if (user) await revokeSession(c.env.DB, user.sessionId);
+  if (user) {
+    const now = nowIso();
+    await c.env.DB.batch([
+      c.env.DB.prepare("UPDATE sessions SET revoked_at=? WHERE id=? AND revoked_at IS NULL").bind(now, user.sessionId),
+      c.env.DB.prepare("INSERT INTO audit_logs(user_id,company_id,action,entity_type,entity_id,reference,created_at) VALUES(?,?,'logout','User',?,?,?)")
+        .bind(user.id, user.companyId ?? user.activeCompanyId, String(user.id), user.email, now),
+    ]);
+  }
   setCookies(c, clearSessionHeaders(c.req.raw));
   return c.redirect("/login", 303);
 });

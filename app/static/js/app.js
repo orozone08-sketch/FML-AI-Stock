@@ -71,13 +71,16 @@ document.addEventListener("click", async (event) => {
     // table and markup wrappers must not make the button stop working.
     const form = addLine.closest("form");
     const table = form?.querySelector("[data-line-grid]");
-    const template = table?.querySelector("tbody [data-line-row]");
+    const rows = table?.querySelector("[data-line-rows], tbody");
+    const template = rows?.querySelector("[data-line-row]");
     if (template) {
       const row = template.cloneNode(true);
       row.querySelectorAll("input").forEach((input) => { input.value = input.name === "rate[]" || input.name === "gst_percent[]" ? "0" : ""; });
       row.querySelectorAll("select").forEach((select) => { select.selectedIndex = 0; });
-      table.querySelector("tbody")?.appendChild(row);
-      row.querySelector("select, input")?.focus();
+      rows?.appendChild(row);
+      row.querySelector("[data-item-search], select, input")?.focus();
+      initializeItemPickers(row);
+      updateLineTotal(row);
     }
     return;
   }

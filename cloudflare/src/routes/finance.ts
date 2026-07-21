@@ -57,6 +57,7 @@ async function paymentForm(
     paymentId = Number(row.id) || 0,
     search = (c.req.query("party_q") ?? "").trim(),
     selectedParty = Number(row[kind === "customer" ? "customer_id" : "supplier_id"]) || 0,
+    partyName = kind === "customer" ? "Customer" : "Supplier",
     filter = search ? " AND (code LIKE ? COLLATE NOCASE OR name LIKE ? COLLATE NOCASE OR id=?)" : "",
     filterValues = search ? [`${search}%`, `%${search}%`, selectedParty] : [];
   const targetCompany = selectedCompany || company;
@@ -85,20 +86,25 @@ async function paymentForm(
   const selectedTarget = (allocation?.results?.[0] as Row | undefined)?.target_id ?? "";
   const selectedMode = String(row.mode ?? "CASH");
   const modes = ["CASH", "BANK", "UPI", "CHEQUE", "RTGS", "NEFT", "OTHER"].map((mode) => `<option value="${mode}" ${mode === selectedMode ? "selected" : ""}>${mode}</option>`).join("");
-  return `<form method="get" class="option-search"><label>Find ${kind}<input name="party_q" value="${escapeHtml(search)}" placeholder="Code or name"></label><button>Search</button></form><form method="post"><input type="hidden" name="csrf_token" value="${escapeHtml(user.csrfToken)}"><input type="hidden" name="idempotency_key" value="${randomToken(16)}">${companyControl}<label>${kind}<select name="party_id" required>${options((parties?.results ?? []) as Row[], (r) => `${r.code} — ${r.name}`, row[kind === "customer" ? "customer_id" : "supplier_id"])}</select></label><label>Preferred document<select name="target_id"><option value="">Allocate oldest first</option>${options((targets?.results ?? []) as Row[], (r) => `${r.company_code} · ${r.document_number} — ₹${money(r.balance_amount_paise)}`, selectedTarget)}</select></label><label>Date<input type="date" name="payment_date" value="${escapeHtml(row.payment_date ?? new Date().toISOString().slice(0, 10))}" required></label><label>Mode<select name="mode">${modes}</select></label><label>Reference<input name="reference_number" value="${escapeHtml(row.reference_number ?? "")}"></label><label>Amount<input name="amount" value="${row.total_amount_paise ? Number(row.total_amount_paise) / 100 : ""}" required></label><label>Remarks<textarea name="remarks">${escapeHtml(row.remarks ?? "")}</textarea></label><button>Save</button></form>`;
+  const partyRows=(parties?.results??[]) as Row[],selected=partyRows.find(p=>Number(p.id)===selectedParty)??partyRows[0];
+  const picker=`<div class="item-combobox" data-option-picker data-picker-label="${kind}" data-picker-prefix="${kind}"><input name="${kind}_search" type="text" value="${selected?escapeHtml(`${selected.code} - ${selected.name}`):""}" placeholder="Type ${kind} name or code" autocomplete="off" required data-option-search><input name="party_id" type="hidden" value="${selected?escapeHtml(selected.id):""}" data-option-value><button type="button" class="item-combobox-button" data-option-open aria-label="Show ${kind} list"></button><datalist data-option-list>${partyRows.map(p=>`<option value="${escapeHtml(`${p.code} - ${p.name}`)}" data-option-id="${escapeHtml(p.id)}"></option>`).join("")}</datalist></div>`;
+  const action=paymentId?`/finance/payments/${paymentId}/edit`:`/finance/payments/${kind==="customer"?"customer-receipt":"supplier-payment"}`;
+  return `<form method="get" class="option-search"><label>Find ${kind}<input name="party_q" value="${escapeHtml(search)}" placeholder="Code or name"></label><button class="secondary-button">Search</button></form><form method="post" action="${action}" class="form-stack"><input type="hidden" name="csrf_token" value="${escapeHtml(user.csrfToken)}"><input type="hidden" name="idempotency_key" value="${randomToken(16)}">${companyControl}<label>${partyName}${picker}</label><label>${kind==="customer"?"Invoice":"Bill"}<select name="target_id"><option value="">Treat as advance</option>${options((targets?.results ?? []) as Row[], (r) => `${r.company_code} · ${r.document_number} · ₹${money(r.balance_amount_paise)}`, selectedTarget)}</select></label><label>${kind==="customer"?"Receipt":"Payment"} date<input type="date" name="payment_date" value="${escapeHtml(row.payment_date ?? new Date().toISOString().slice(0, 10))}" required></label><label>Mode<select name="mode">${modes}</select></label><label>Reference<input name="reference_number" value="${escapeHtml(row.reference_number ?? "")}"></label><label>Amount<input name="amount" type="number" step="0.01" min="0" value="${row.total_amount_paise ? Number(row.total_amount_paise) / 100 : ""}" required></label><label>Remarks<textarea name="remarks">${escapeHtml(row.remarks ?? "")}</textarea></label><button class="primary-button" type="submit">${paymentId?"Save Changes":kind==="customer"?"Save Receipt":"Save Payment"}</button></form>`;
 }
 
 finance.get("/payments", async (c) => {
   const user = c.get("user")!;
   if (!can(user, "payments")) return c.text("Forbidden", 403);
+  const page=Math.max(1,Number.parseInt(c.req.query("page")??"1",10)||1),pageSize=50,offset=(page-1)*pageSize;
   const scoped = user.activeCompanyId ? " WHERE p.company_id=?" : "";
   const result = await c.env.DB.prepare(
-    `SELECT p.id,p.payment_date,p.payment_type,p.reference_number,p.mode,p.total_amount_paise,p.allocated_amount_paise,p.unallocated_amount_paise,co.code company,COALESCE(c.name,s.name) party FROM payments p JOIN companies co ON co.id=p.company_id LEFT JOIN customers c ON c.id=p.customer_id LEFT JOIN suppliers s ON s.id=p.supplier_id${scoped} ORDER BY p.payment_date DESC,p.id DESC LIMIT 100`,
+    `SELECT p.id,p.payment_date,p.payment_type,p.reference_number,p.mode,p.total_amount_paise,p.allocated_amount_paise,p.unallocated_amount_paise,p.created_by_id,co.code company,COALESCE(c.name,s.name) party,u.name created_by FROM payments p JOIN companies co ON co.id=p.company_id LEFT JOIN customers c ON c.id=p.customer_id LEFT JOIN suppliers s ON s.id=p.supplier_id LEFT JOIN users u ON u.id=p.created_by_id${scoped} ORDER BY p.payment_date DESC,p.id DESC LIMIT ? OFFSET ?`,
   )
-    .bind(...(user.activeCompanyId ? [user.activeCompanyId] : []))
+    .bind(...(user.activeCompanyId ? [user.activeCompanyId] : []),pageSize+1,offset)
     .all<Row>();
+  const hasNext=result.results.length>pageSize,paymentRows=result.results.slice(0,pageSize);
   const canMaintain = can(user, "payments", "edit") || can(user, "payments", "deactivate");
-  const rows = result.results.map((r) => {
+  const rows = paymentRows.map((r) => {
     const opening = String(r.payment_type).startsWith("OPENING_ADVANCE");
     const editUrl = opening ? `/transactions/opening/advance/${r.id}/edit` : `/finance/payments/${r.id}/edit`;
     const deleteUrl = opening ? `/transactions/opening/advance/${r.id}/delete` : `/finance/payments/${r.id}/delete`;
@@ -108,17 +114,19 @@ finance.get("/payments", async (c) => {
     escapeHtml(r.payment_type),
     escapeHtml(r.party),
     escapeHtml(r.mode),
-    escapeHtml(r.reference_number),
     `₹${money(r.total_amount_paise)}`,
     `₹${money(r.allocated_amount_paise)}`,
     `₹${money(r.unallocated_amount_paise)}`,
-    `${canMaintain || opening && can(user, "opening", "create") ? `<a href="${editUrl}">Edit</a> ` : ""}<a href="/finance/payments/${r.id}/print">Print</a> <a href="/finance/payments/${r.id}/export/csv">Export</a>${canMaintain || opening && can(user, "opening", "create") ? ` <form class="inline-form" method="post" action="${deleteUrl}"><input type="hidden" name="csrf_token" value="${escapeHtml(user.csrfToken)}"><button type="submit">Delete</button></form>` : ""}`,
+    escapeHtml(r.reference_number),escapeHtml(r.created_by),
+    `<a class="table-action" href="/finance/payments/${r.id}/export/pdf">PDF</a> <a class="table-action" href="/finance/payments/${r.id}/export/xlsx">XL</a> <a class="table-action" href="/finance/payments/${r.id}/print" target="_blank" rel="noopener">Print</a>${canMaintain || opening && can(user, "opening", "create") ? ` <a class="table-action" href="${editUrl}">Edit</a> <form method="post" action="${deleteUrl}" data-confirm="Delete this ${opening?"opening advance":"payment and reverse its allocation"}?"><input type="hidden" name="csrf_token" value="${escapeHtml(user.csrfToken)}"><button class="danger-link" type="submit">Delete</button></form>` : ""}`,
   ];});
+  const pagination=page>1||hasNext?`<div class="pagination">${page>1?`<a class="secondary-button" href="?page=${page-1}">Previous</a>`:""}<span>Page ${page}</span>${hasNext?`<a class="secondary-button" href="?page=${page+1}">Next</a>`:""}</div>`:"";
   return c.html(
     layout(
       "Payments",
-      `${can(user, "payments", "create") ? `<details><summary>Customer receipt</summary>${await paymentForm(c, "customer")}</details><details><summary>Supplier payment</summary>${await paymentForm(c, "supplier")}</details>` : ""}${table(["Date", "Company", "Type", "Party", "Mode", "Reference", "Amount", "Allocated", "Advance", "Actions"], rows)}`,
+      `${can(user, "payments", "create") ? `<section class="grid two"><div class="panel"><h2>Customer Receipt</h2>${await paymentForm(c,"customer")}</div><div class="panel"><h2>Supplier Payment</h2>${await paymentForm(c,"supplier")}</div></section>` : ""}<section class="panel"><div class="panel-title"><h2>Recent Payments</h2><a href="/reports/payment-history">Report</a></div><div class="table-wrap"><table><thead><tr>${["Date","Company","Type","Party","Mode","Amount","Allocated","Advance","Reference","Created By","Actions"].map(h=>`<th>${h}</th>`).join("")}</tr></thead><tbody>${rows.length?rows.map(row=>`<tr>${row.map((cell,index)=>`<td${index===10?' class="actions"':""}>${cell}</td>`).join("")}</tr>`).join(""):'<tr><td colspan="11" class="empty">No payments recorded.</td></tr>'}</tbody></table></div>${pagination}</section>`,
       user,
+      {subtitle:"Record customer receipts, supplier payments, allocations, and advances."},
     ),
   );
 });

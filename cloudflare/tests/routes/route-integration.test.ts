@@ -36,6 +36,7 @@ class RouteDb {
   }
   batch<T>(statements: Statement[]) {
     const results = statements.map((statement) => {
+      if (!statement.query.trimStart().startsWith("SELECT")) this.writes.push(statement);
       if (statement.query.includes("SUM(quantity_milliunits)")) return { results: [{ quantity: -2_000, value: 25_000 }] };
       if (statement.query.includes("FROM receivables")) return { results: [{ total: 12_500, count: 1, overdue: 1 }] };
       if (statement.query.includes("FROM payables")) return { results: [{ total: 5_000, count: 1, overdue: 0 }] };
@@ -82,9 +83,20 @@ describe("authenticated route integration", () => {
     const response = await app.request("https://example.test/admin/login", {}, currentEnv);
     expect(response.status).toBe(200);
     const html = await response.text();
-    expect(html).toContain('type="text" name="email"');
+    expect(html).toContain('name="email" type="text"');
     expect(html).toContain('autocomplete="username"');
-    expect(html).not.toContain('type="email" name="email"');
+    expect(html).not.toContain('name="email" type="email"');
+  });
+
+  it("records the legacy logout audit event while revoking the session", async () => {
+    const response = await authenticated("/logout", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "csrf_token=csrf-token",
+    });
+    expect(response.status).toBe(303);
+    expect(db.writes.some((statement) => statement.query.startsWith("UPDATE sessions SET revoked_at"))).toBe(true);
+    expect(db.writes.some((statement) => statement.query.includes("'logout','User'"))).toBe(true);
   });
 
   it("redirects unauthenticated HTML requests without touching business tables", async () => {
@@ -98,15 +110,18 @@ describe("authenticated route integration", () => {
     const response = await authenticated("/dashboard");
     expect(response.status).toBe(200);
     const html=await response.text();
-    expect(html).toContain("<strong>-2</strong>");
+    expect(html).toContain('<strong data-count-value>-2</strong>');
     const kpis = db.statements.filter((statement) => /inventory_balances|receivables|payables|FROM sales WHERE|FROM purchases WHERE|inter_company_ledger_entries/.test(statement.query));
     // Seven headline metrics plus period trend and four bounded critical-detail
     // queries (receivables, payables, low stock, inter-company).
     expect(kpis).toHaveLength(12);
     expect(kpis.every((statement) => statement.params.includes(1))).toBe(true);
-    expect(html).toContain("ledger value");
-    expect(html).toContain("Period trend");
-    expect(html).toContain("Critical customer dues");
+    expect(html).toContain("FIFO value");
+    expect(html).toContain('class="hero-panel"');
+    expect(html).toContain("Sales Trend");
+    expect(html).toContain("Overdue Receivables");
+    expect(html).toContain('class="company-chip"');
+    expect(html).toContain('data-shortcut-help');
     expect(html).toContain("data-floating-tools");
     expect(html).toContain('data-calendar-url="/dashboard/calendar-events"');
   });
@@ -131,7 +146,7 @@ describe("authenticated route integration", () => {
     expect(list.status).toBe(200);
     const query = db.statements.find((statement) => statement.query.includes("FROM stock_books") && statement.query.includes("ORDER BY code"));
     expect(query?.query).toContain("company_id=?");
-    expect(query?.params).toEqual([1]);
+    expect(query?.params.slice(0,1)).toEqual([1]);
     expect(await list.text()).not.toContain("New Stock-book");
 
     const create = await authenticated("/masters/items/new");
