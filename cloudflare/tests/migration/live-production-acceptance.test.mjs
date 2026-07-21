@@ -38,3 +38,8 @@ test("production acceptance covers session CSRF, idempotency, and R2 read varian
   for (const marker of ["fastock_public_csrf", "fastock_csrf", "idempotency_key", 'method: "HEAD"', "Range: \"bytes=3-11\"", 'method: "DELETE"'])
     assert.ok(script.includes(marker), `missing acceptance marker: ${marker}`);
 });
+
+test("production acceptance understands the legacy searchable item picker", () => {
+  assert.match(script, /data-item-id/);
+  assert.match(script, /name === "item_id\[\]"/);
+});

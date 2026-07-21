@@ -155,9 +155,13 @@ async function lifecycleAuthorized(editPath, deletePath, label) {
 
 function selectValues(html, name) {
   const match = new RegExp(`<select[^>]*name=["']${escapeRegex(name)}["'][^>]*>([\\s\\S]*?)<\\/select>`, "i").exec(html);
-  if (!match) return [];
-  return [...match[1].matchAll(/<option[^>]*value=["']([^"']*)["'][^>]*>/gi)]
-    .map((option) => Number(option[1]))
+  const values = match
+    ? [...match[1].matchAll(/<option[^>]*value=["']([^"']*)["'][^>]*>/gi)].map((option) => option[1])
+    : name === "item_id[]"
+      ? [...html.matchAll(/<option[^>]*data-item-id=["']([^"']*)["'][^>]*>/gi)].map((option) => option[1])
+      : [];
+  return values
+    .map((value) => Number(value))
     .filter((value) => Number.isSafeInteger(value) && value > 0);
 }
 
