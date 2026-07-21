@@ -173,6 +173,15 @@ describe("authenticated route integration", () => {
     expect(query?.params.slice(0, 2)).toEqual([10, 1]);
   });
 
+  it("keeps the combined customer directory within D1 compound-select limits", async () => {
+    const response = await authenticated("/masters/customers");
+    expect(response.status).toBe(200);
+    const directory = db.statements.find((statement) => statement.query.includes("WITH parties AS"));
+    expect(directory?.query).toContain("EXISTS(SELECT 1 FROM sales");
+    expect(directory?.query).not.toContain("WITH linked AS");
+    expect(await response.text()).toContain("Customer / Supplier Directory");
+  });
+
   it("blocks state-changing routes at CSRF middleware before permission or D1 writes", async () => {
     db.role = "ADMIN";
     const response = await authenticated("/masters/items/new", {
