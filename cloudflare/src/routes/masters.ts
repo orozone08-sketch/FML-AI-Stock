@@ -4,6 +4,7 @@ import { can } from "../security/permissions";
 import { escapeHtml, formField, layout, table } from "../views/html";
 import { nowIso } from "../db/helpers";
 import { normalizeFilters, toCsv, toPdf, toXlsx } from "../reports";
+import { cachedReferenceRows, invalidateReferenceRows, type ReferenceKind } from "../cache/reference";
 
 interface MasterConfig { table: string; module: string; title: string; description:string; columns: string[]; form: string[]; companyScoped?: boolean; dbColumns?: Record<string,string> }
 const configs: Record<string, MasterConfig> = {
@@ -15,6 +16,20 @@ const configs: Record<string, MasterConfig> = {
 };
 
 const masters = new Hono<{ Bindings: Env; Variables: AppVariables }>();
+
+async function invalidateMasterReferences(c:any,kind:string,companyId:unknown=null):Promise<void>{
+  const entries:Array<{kind:ReferenceKind;scope?:string}>=[];
+  if(kind==="companies"){
+    entries.push({kind:"companies"});
+    const id=Number(companyId);if(Number.isSafeInteger(id)&&id>0)entries.push({kind:"companies",scope:`company:${id}`});
+  }
+  if(kind==="items")entries.push({kind:"items"});
+  if(kind==="stock-books"){
+    entries.push({kind:"stock-books"});
+    const id=Number(companyId);if(Number.isSafeInteger(id)&&id>0)entries.push({kind:"stock-books",scope:`company:${id}`});
+  }
+  if(entries.length)await invalidateReferenceRows(c.env,entries);
+}
 
 function config(kind: string): MasterConfig | null { return configs[kind] ?? null; }
 function authorized(c: any, item: MasterConfig, action: Action): boolean { return can(c.get("user"), item.module, action); }
@@ -37,7 +52,7 @@ function masterField(item: MasterConfig, field: string, row: Record<string,unkno
 }
 function pageNumber(raw:string|undefined):number { const value=Number(raw??1);return Number.isSafeInteger(value)&&value>0?value:1; }
 function pagination(path:string,page:number,total:number,perPage:number,params:URLSearchParams):string { const pages=Math.max(1,Math.ceil(total/perPage));if(pages<=1)return "";const link=(target:number,label:string)=>{const next=new URLSearchParams(params);next.set("page",String(target));return `<a class="secondary-button" href="${path}?${escapeHtml(next.toString())}">${label}</a>`};return `<div class="pagination">${page>1?link(page-1,"Previous"):""}<span>Page ${page} of ${pages}</span>${page<pages?link(page+1,"Next"):""}</div>`; }
-async function masterForm(c:any,item:MasterConfig,row:Record<string,unknown>={}):Promise<string>{const user=c.get("user")!,kind=c.req.param("kind");let fields=item.form.map(field=>masterField(item,field,row));if(kind==="stock-books"){const companies=((await c.env.DB.prepare("SELECT id,code,name FROM companies WHERE active=1 ORDER BY code").all()).results??[]) as Record<string,unknown>[];fields=fields.map((field,index)=>item.form[index]==="company_id"?`<label>Company<select name="company_id" required>${companies.map((company:Record<string,unknown>)=>`<option value="${company.id}" ${Number(company.id)===Number(row.company_id)?"selected":""}>${escapeHtml(company.code)} - ${escapeHtml(company.name)}</option>`).join("")}</select></label>`:field);}return `<section class="panel narrow"><form method="post" class="form-grid"><input type="hidden" name="csrf_token" value="${escapeHtml(user.csrfToken)}">${fields.join("")}<label class="check full-span"><input name="active" type="checkbox" value="1" ${row.active!==0?"checked":""}> Active</label><div class="form-actions full-span"><a class="secondary-button" href="/masters/${kind}">Cancel</a><button class="primary-button" type="submit">Save</button></div></form></section>`;}
+async function masterForm(c:any,item:MasterConfig,row:Record<string,unknown>={}):Promise<string>{const user=c.get("user")!,kind=c.req.param("kind");let fields=item.form.map(field=>masterField(item,field,row));if(kind==="stock-books"){const companies=await cachedReferenceRows<Record<string,unknown>>(c.env,"companies","all",async()=>((await c.env.DB.prepare("SELECT id,code,name FROM companies WHERE active=1 ORDER BY code").all()).results??[]) as Record<string,unknown>[]);fields=fields.map((field,index)=>item.form[index]==="company_id"?`<label>Company<select name="company_id" required>${companies.map((company:Record<string,unknown>)=>`<option value="${company.id}" ${Number(company.id)===Number(row.company_id)?"selected":""}>${escapeHtml(company.code)} - ${escapeHtml(company.name)}</option>`).join("")}</select></label>`:field);}return `<section class="panel narrow"><form method="post" class="form-grid"><input type="hidden" name="csrf_token" value="${escapeHtml(user.csrfToken)}">${fields.join("")}<label class="check full-span"><input name="active" type="checkbox" value="1" ${row.active!==0?"checked":""}> Active</label><div class="form-actions full-span"><a class="secondary-button" href="/masters/${kind}">Cancel</a><button class="primary-button" type="submit">Save</button></div></form></section>`;}
 function masterScope(item: MasterConfig, user: { activeCompanyId: number | null }): { clause: string; values: number[] } {
   return item.companyScoped && user.activeCompanyId ? { clause: " AND company_id=?", values: [user.activeCompanyId] } : { clause: "", values: [] };
 }
@@ -214,6 +229,7 @@ masters.post("/:kind/new", async (c) => {
     const result=await c.env.DB.prepare(`INSERT INTO ${item.table}(${columns.join(",")}) VALUES(${columns.map(() => "?").join(",")})`).bind(...values, body.active === "1" ? 1 : 0, now, now, user.id).run();
     await c.env.DB.prepare("INSERT INTO audit_logs(user_id,company_id,action,entity_type,entity_id,reference,after_values,created_at) VALUES(?,?,'create',?,?,?,?,?)").bind(user.id,user.activeCompanyId,item.title,String(result.meta.last_row_id),String(body.code??""),JSON.stringify(Object.fromEntries(columns.map((column,index)=>[column,[...values,body.active==="1"?1:0,now,now,user.id][index]]))),now).run();
   } catch (error) { return c.html(layout(`New ${item.title}`, `<p>Could not save: ${escapeHtml(error instanceof Error ? error.message : error)}</p>`, user), 409); }
+  await invalidateMasterReferences(c,c.req.param("kind"),body.company_id??user.activeCompanyId);
   return c.redirect(`/masters/${c.req.param("kind")}`, 303);
 });
 
@@ -234,6 +250,7 @@ masters.post("/:kind/:id/edit", async (c) => {
     c.env.DB.prepare(`UPDATE ${item.table} SET ${item.form.map((field) => `${dbColumn(item,field)}=?`).join(",")},active=?,updated_at=?,updated_by_id=? WHERE id=?${scope.clause}`).bind(...values, body.active === "1" ? 1 : 0, now, user.id, id, ...scope.values),
     c.env.DB.prepare("INSERT INTO audit_logs(user_id,company_id,action,entity_type,entity_id,reference,before_values,after_values,created_at) VALUES(?,?,'edit',?,?,?,?,?,?)").bind(user.id,user.activeCompanyId,item.title,String(id),String(existing.code??""),JSON.stringify(existing),JSON.stringify(after),now),
   ]);
+  await invalidateMasterReferences(c,c.req.param("kind"),c.req.param("kind")==="companies"?id:body.company_id??existing.company_id??user.activeCompanyId);
   return c.redirect(`/masters/${c.req.param("kind")}`, 303);
 });
 
@@ -265,6 +282,7 @@ masters.post("/:kind/:id/deactivate", async (c) => {
     c.env.DB.prepare(`UPDATE ${item.table} SET active=0,updated_at=?,updated_by_id=? WHERE id=?${scope.clause}`).bind(now, user.id, id, ...scope.values),
     c.env.DB.prepare("INSERT INTO audit_logs(user_id,company_id,action,entity_type,entity_id,reference,before_values,after_values,created_at) VALUES(?,?,'deactivate',?,?,?,?,?,?)").bind(user.id,row.company_id ?? user.activeCompanyId,item.title,String(id),String(row.code??""),JSON.stringify(row),JSON.stringify({...row,active:0,updated_at:now,updated_by_id:user.id}),now),
   ]);
+  await invalidateMasterReferences(c,c.req.param("kind"),c.req.param("kind")==="companies"?id:row.company_id??user.activeCompanyId);
   return c.redirect(`/masters/${c.req.param("kind")}`, 303);
 });
 

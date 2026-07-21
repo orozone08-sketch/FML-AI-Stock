@@ -29,5 +29,5 @@ test("serverless read migration keeps only the reviewed non-overlapping access p
 
 test("worker advertises the matching customer profile schema", async () => {
   const config = await readFile(wrangler, "utf8");
-  assert.match(config, /"SCHEMA_VERSION"\s*:\s*"0007"/);
+  assert.match(config, /"SCHEMA_VERSION"\s*:\s*"0008"/);
 });

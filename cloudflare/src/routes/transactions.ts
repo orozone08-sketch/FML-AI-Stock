@@ -4,6 +4,7 @@ import { can } from "../security/permissions";
 import { escapeHtml, layout, money, qty, table } from "../views/html";
 import { randomToken, sha256 } from "../security/crypto";
 import { saleInvoiceHtml, saleInvoiceModel, saleInvoicePdfRows, toCsv, toPdf, toXlsx } from "../reports";
+import { cachedReferenceRows } from "../cache/reference";
 
 const transactions = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 type Row = Record<string, unknown>;
@@ -140,13 +141,21 @@ function searchable(db: D1Database, table: string, columns: string, scope: strin
     .bind(...scopeValues, ...(search ? [`${search}%`, `%${search}%`, ...ids] : []), ...(selectedSql ? ids : []));
 }
 
-async function options(db: D1Database, companyId: number | null, kind: TransactionKind, search: string, document: Row, existingLines: Row[], includeParty: boolean) {
+async function options(env: Env, companyId: number | null, kind: TransactionKind, search: string, document: Row, existingLines: Row[], includeParty: boolean) {
+  const db = env.DB;
   const sourceCompany = Number(kind === "transfer" ? document.from_company_id : document.company_id) || companyId || 0;
   const sourceBook = Number(kind === "transfer" ? document.from_stock_book_id : document.stock_book_id) || 0;
   const selectedItems = existingLines.map((line) => Number(line.item_id));
   const sourceScope = companyId ? " AND id=?" : "";
   const bookScope = companyId ? " AND company_id=?" : "";
-  const statements = [
+  const cacheable = !search && Object.keys(document).length === 0 && existingLines.length === 0;
+  const referenceScope = companyId ? `company:${companyId}` : "all";
+  const baseResults:Row[][] = cacheable ? await Promise.all([
+    cachedReferenceRows(env,"companies",referenceScope,async()=>((await searchable(db,"companies","id,code,name",sourceScope,companyId?[companyId]:[],"",[]).all<Row>()).results)),
+    cachedReferenceRows(env,"stock-books",referenceScope,async()=>((await searchable(db,"stock_books","id,code,name,company_id,book_type",bookScope,companyId?[companyId]:[],"",[]).all<Row>()).results)),
+    cachedReferenceRows(env,"items","all",async()=>((await searchable(db,"items","id,code,name,unit","",[],"",[]).all<Row>()).results)),
+  ]) : [];
+  const statements = cacheable ? [] : [
     searchable(db, "companies", "id,code,name", sourceScope, companyId ? [companyId] : [], search, [sourceCompany]),
     searchable(db, "stock_books", "id,code,name,company_id,book_type", bookScope, companyId ? [companyId] : [], search, [sourceBook]),
     searchable(db, "items", "id,code,name,unit", "", [], search, selectedItems),
@@ -154,11 +163,18 @@ async function options(db: D1Database, companyId: number | null, kind: Transacti
   if (kind === "purchase" && includeParty) statements.push(searchable(db, "suppliers", "id,code,name", "", [], search, [Number(document.supplier_id)]));
   if (kind === "sale" && includeParty) statements.push(searchable(db, "customers", "id,code,name", "", [], search, [Number(document.customer_id)]));
   if (kind === "transfer") {
-    statements.push(searchable(db, "companies", "id,code,name", "", [], search, [Number(document.to_company_id)]));
-    statements.push(searchable(db, "stock_books", "id,code,name,company_id,book_type", "", [], search, [Number(document.to_stock_book_id)]));
+    if (cacheable) {
+      baseResults.push(
+        await cachedReferenceRows(env,"companies","all",async()=>((await searchable(db,"companies","id,code,name","",[],"",[]).all<Row>()).results)),
+        await cachedReferenceRows(env,"stock-books","all",async()=>((await searchable(db,"stock_books","id,code,name,company_id,book_type","",[],"",[]).all<Row>()).results)),
+      );
+    } else {
+      statements.push(searchable(db, "companies", "id,code,name", "", [], search, [Number(document.to_company_id)]));
+      statements.push(searchable(db, "stock_books", "id,code,name,company_id,book_type", "", [], search, [Number(document.to_stock_book_id)]));
+    }
   }
-  const results = await db.batch(statements);
-  return results.map((result) => (result.results ?? []) as Row[]);
+  const results = statements.length ? await db.batch(statements) : [];
+  return [...baseResults,...results.map((result) => (result.results ?? []) as Row[])];
 }
 
 const select = (name: string, rows: Row[], selected: unknown = null): string =>
@@ -244,7 +260,7 @@ async function documentForm(
   openingStock = false,
 ) {
   const user = c.get("user")!, search = (c.req.query("option_q") ?? "").trim(),
-    optionSets = await options(c.env.DB, user.activeCompanyId, kind, search, document, existingLines, !openingStock),
+    optionSets = await options(c.env, user.activeCompanyId, kind, search, document, existingLines, !openingStock),
     companies = optionSets[0] ?? [],
     books = optionSets[1] ?? [],
     items = optionSets[2] ?? [],
@@ -279,7 +295,7 @@ function pendingLineEditor(items: Row[], existing: Row[] = []): string {
 
 async function pendingStockForm(c: AppContext): Promise<string> {
   const user = c.get("user")!, search = (c.req.query("option_q") ?? "").trim();
-  const optionSets = await options(c.env.DB, user.activeCompanyId, "transfer", search, {}, [], true);
+  const optionSets = await options(c.env, user.activeCompanyId, "transfer", search, {}, [], true);
   const companies = optionSets[0] ?? [], sourceBooks = optionSets[1] ?? [], items = optionSets[2] ?? [], destinationCompanies = optionSets[3] ?? [], destinationBooks = optionSets[4] ?? [];
   return `<form method="get" class="option-search"><label>Find options<input name="option_q" value="${escapeHtml(search)}" placeholder="Code or name"></label><button>Search</button></form><form method="post" action="/transactions/opening/pending-stock"><input type="hidden" name="csrf_token" value="${escapeHtml(user.csrfToken)}"><input type="hidden" name="idempotency_key" value="${randomToken(16)}"><label>From company${select("from_company_id", companies, user.activeCompanyId)}</label><label>To company${select("to_company_id", destinationCompanies)}</label><label>From stock book (optional)${optionalSelect("from_stock_book_id", sourceBooks)}</label><label>To stock book (optional)${optionalSelect("to_stock_book_id", destinationBooks)}</label><label>Reference<input name="reference_number" required></label><label>Date<input type="date" name="transfer_date" value="${new Date().toISOString().slice(0,10)}" required></label>${pendingLineEditor(items)}<label>Remarks<textarea name="remarks"></textarea></label><button>Save</button></form>`;
 }

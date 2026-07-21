@@ -13,6 +13,7 @@ import {
   verifyCsrf,
 } from "../auth/session";
 import { authLayout, escapeHtml, formField } from "../views/html";
+import { cachedReferenceRows } from "../cache/reference";
 import { nowIso } from "../db/helpers";
 import { assetPaths } from "../generated/assets";
 
@@ -85,15 +86,15 @@ function setCookies(
 }
 
 async function companies(
-  db: D1Database,
+  env: Env,
 ): Promise<Array<Record<string, unknown>>> {
-  return (
-    await db
+  return cachedReferenceRows(env, "companies", "all", async () => (
+    await env.DB
       .prepare(
         "SELECT id,name,code FROM companies WHERE active=1 ORDER BY code",
       )
       .all<Record<string, unknown>>()
-  ).results;
+  ).results);
 }
 
 function companyLogo(row: Record<string, unknown>): string {
@@ -202,7 +203,7 @@ auth.get("/login", async (c) => {
   const csrf = await publicCsrf(c);
   return c.html(
     withPublicCsrf(
-      loginPage(await companies(c.env.DB), "", c.req.query("company_id") ?? "", "", c.req.query("next") ?? ""),
+      loginPage(await companies(c.env), "", c.req.query("company_id") ?? "", "", c.req.query("next") ?? ""),
       csrf,
     ),
   );
@@ -220,7 +221,7 @@ auth.get("/login/company/:id", async (c) => {
   const csrf = await publicCsrf(c);
   return c.html(
     withPublicCsrf(
-      loginPage(await companies(c.env.DB), "", c.req.param("id"), "", c.req.query("next") ?? ""),
+      loginPage(await companies(c.env), "", c.req.param("id"), "", c.req.query("next") ?? ""),
       csrf,
     ),
   );
@@ -236,7 +237,7 @@ async function handleCompanyLogin(c: any, forcedCompanyId?: number) {
   const password = String(body.password ?? "");
   const companyId =
     forcedCompanyId ?? Number.parseInt(String(body.company_id ?? ""), 10);
-  const rows = await companies(c.env.DB);
+  const rows = await companies(c.env);
   if (await throttled(c.env, c.req.raw, email))
     return c.html(
       withPublicCsrf(
@@ -429,7 +430,7 @@ auth.get("/register", async (c) => {
       c.get("user")!.forcePasswordChange ? "/change-password" : "/dashboard/",
       303,
     );
-  const registrationCompanies = await companies(c.env.DB);
+  const registrationCompanies = await companies(c.env);
   const options = registrationCompanies.map((row, index) => {
     const code = String(row.code ?? "").toUpperCase();
     const logo = code === "AI" ? assetPaths.adityaLogo : code === "FML" ? assetPaths.firsttechLogo : assetPaths.icon;

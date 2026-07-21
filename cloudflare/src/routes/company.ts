@@ -3,6 +3,7 @@ import type { AppVariables, Env } from "../types";
 import { companyCookie } from "../auth/session";
 import { escapeHtml, layout } from "../views/html";
 import { assetPaths } from "../generated/assets";
+import { cachedReferenceRows } from "../cache/reference";
 
 const company = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
@@ -11,9 +12,11 @@ const safeNext = (value: string | undefined): string => value?.startsWith("/") &
 company.get("/choose", async (c) => {
   const user = c.get("user")!;
   if (user.companyId) return c.redirect(safeNext(c.req.query("next")), 303);
-  const rows = await c.env.DB.prepare("SELECT id,name,code FROM companies WHERE active=1 ORDER BY code").all<Record<string, unknown>>();
+  const rows = await cachedReferenceRows(c.env, "companies", "all", async () => (
+    await c.env.DB.prepare("SELECT id,name,code FROM companies WHERE active=1 ORDER BY code").all<Record<string, unknown>>()
+  ).results);
   const next = escapeHtml(safeNext(c.req.query("next")));
-  const cards = rows.results.map((row) => {
+  const cards = rows.map((row) => {
     const code = String(row.code ?? "").toUpperCase();
     const logo = code === "AI" ? assetPaths.adityaLogo : code === "FML" ? assetPaths.firsttechLogo : assetPaths.icon;
     const active = Number(row.id) === user.activeCompanyId ? " active" : "";

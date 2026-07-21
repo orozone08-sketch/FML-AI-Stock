@@ -23,7 +23,7 @@ class VisibilityDb {
   first(query: string): Row | null {
     if (query.includes("FROM sessions s JOIN users u")) return {
       session_id: 1, csrf_digest: this.csrfDigest, id: 1, name: "Admin", email: "admin@example.test",
-      role: "ADMIN", company_id: 1, force_password_change: 0,
+      role: "ADMIN", company_id: 1, force_password_change: 0, permission_overrides_json: "[]",
     };
     if (query.includes("FROM inter_company_transfers") && query.includes("WHERE id=?")) return this.scopedTransfer;
     return null;

@@ -26,7 +26,7 @@ class RouteDb {
     if (query.includes("FROM sessions s JOIN users u")) return {
       session_id: 91, csrf_digest: this.csrfDigest, id: 7, name: "Route Tester",
       email: "route@example.test", role: this.role, company_id: this.companyId,
-      force_password_change: 0,
+      force_password_change: 0, permission_overrides_json: "[]",
     };
     return null;
   }
@@ -37,6 +37,7 @@ class RouteDb {
   batch<T>(statements: Statement[]) {
     const results = statements.map((statement) => {
       if (!statement.query.trimStart().startsWith("SELECT")) this.writes.push(statement);
+      if (statement.query.includes("inventory_quantity") && statement.query.includes("inter_company_total")) return { results: [{ inventory_quantity: -2_000, inventory_value: 25_000, receivable_total: 12_500, receivable_count: 1, receivable_overdue: 1, payable_total: 5_000, payable_count: 1, payable_overdue: 0, sales_count: 3, sales_total: 30_000, sales_profit: 7_000, purchase_count: 2, purchase_total: 20_000, low_stock_count: 4, inter_company_total: 9_000 }] };
       if (statement.query.includes("SUM(quantity_milliunits)")) return { results: [{ quantity: -2_000, value: 25_000 }] };
       if (statement.query.includes("FROM receivables")) return { results: [{ total: 12_500, count: 1, overdue: 1 }] };
       if (statement.query.includes("FROM payables")) return { results: [{ total: 5_000, count: 1, overdue: 0 }] };
@@ -112,10 +113,17 @@ describe("authenticated route integration", () => {
     const html=await response.text();
     expect(html).toContain('<strong data-count-value>-2</strong>');
     const kpis = db.statements.filter((statement) => /inventory_balances|receivables|payables|FROM sales WHERE|FROM purchases WHERE|inter_company_ledger_entries/.test(statement.query));
-    // Seven headline metrics plus period trend and four bounded critical-detail
-    // queries (receivables, payables, low stock, inter-company).
-    expect(kpis).toHaveLength(12);
+    // One consolidated metric statement, the trend, and four bounded detail queries.
+    expect(kpis).toHaveLength(6);
     expect(kpis.every((statement) => statement.params.includes(1))).toBe(true);
+    // One combined auth/permissions read plus seven dashboard statements.
+    expect(db.statements).toHaveLength(8);
+    const authRead=db.statements.filter(statement=>statement.query.includes("FROM sessions s JOIN users u"));
+    expect(authRead).toHaveLength(1);
+    expect(authRead[0]?.query).toContain("permission_overrides_json");
+    expect(db.statements.some(statement=>statement.query.startsWith("SELECT module")&&statement.query.includes("permission_overrides"))).toBe(false);
+    const metricRead=db.statements.find(statement=>statement.query.includes("inventory_quantity"));
+    expect(metricRead?.params).toHaveLength((metricRead?.query.match(/\?/g)??[]).length);
     expect(html).toContain("FIFO value");
     expect(html).toContain('class="hero-panel"');
     expect(html).toContain("Sales Trend");

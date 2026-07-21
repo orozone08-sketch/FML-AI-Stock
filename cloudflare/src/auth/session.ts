@@ -50,14 +50,12 @@ export function clearSessionHeaders(request: Request): string[] {
   return [cookie(SESSION_COOKIE, "", { httpOnly: true, maxAge: 0, secure }), cookie(CSRF_COOKIE, "", { maxAge: 0, secure }), cookie(COMPANY_COOKIE, "", { maxAge: 0, secure })];
 }
 
-async function activeCompany(db: D1Database, raw: string | undefined, userCompanyId: number | null, role: Role, secret: string): Promise<number | null> {
-  if (userCompanyId) return userCompanyId;
-  if (!raw || role !== "ADMIN") return null;
+async function requestedCompany(raw: string | undefined, secret: string): Promise<number | null> {
+  if (!raw) return null;
   const [idText, signature] = raw.split(".");
   const id = Number.parseInt(idText ?? "", 10);
   if (!Number.isSafeInteger(id) || !idText || !signature || await hmac(idText, secret) !== signature) return null;
-  const company = await db.prepare("SELECT id FROM companies WHERE id=? AND active=1").bind(id).first();
-  return company ? id : null;
+  return id;
 }
 
 export async function companyCookie(companyId: number | null, request: Request, secret: string): Promise<string> {
@@ -72,21 +70,26 @@ export async function loadUser(c: Context<{ Bindings: Env; Variables: AppVariabl
   const csrf = jar[CSRF_COOKIE];
   if (!token || !csrf) return null;
   const now = nowIso();
-  const row = await c.env.DB.prepare(`SELECT s.id AS session_id,s.csrf_digest,u.id,u.name,u.email,u.role,u.company_id,u.force_password_change
+  const selectedCompanyId = await requestedCompany(jar[COMPANY_COOKIE], c.env.SESSION_HMAC_KEY);
+  const row = await c.env.DB.prepare(`SELECT s.id AS session_id,s.csrf_digest,u.id,u.name,u.email,u.role,u.company_id,u.force_password_change,
+      CASE WHEN u.company_id IS NOT NULL THEN u.company_id WHEN u.role='ADMIN' THEN selected_company.id ELSE NULL END active_company_id,
+      COALESCE(json_group_array(json_object('module',po.module,'can_view',po.can_view,'can_create',po.can_create,'can_edit',po.can_edit,'can_approve',po.can_approve,'can_export',po.can_export,'can_deactivate',po.can_deactivate)) FILTER (WHERE po.module IS NOT NULL),'[]') permission_overrides_json
     FROM sessions s JOIN users u ON u.id=s.user_id LEFT JOIN companies co ON co.id=u.company_id
+    LEFT JOIN companies selected_company ON selected_company.id=? AND selected_company.active=1
+    LEFT JOIN permission_overrides po ON po.user_id=u.id
     WHERE s.token_digest=? AND s.revoked_at IS NULL AND s.expires_at>? AND u.active=1
-      AND (u.company_id IS NULL OR co.active=1) LIMIT 1`)
-    .bind(await sha256(token), now).first<Record<string, unknown>>();
+      AND (u.company_id IS NULL OR co.active=1) GROUP BY s.id,u.id,selected_company.id`)
+    .bind(selectedCompanyId, await sha256(token), now).first<Record<string, unknown>>();
   if (!row || await sha256(csrf) !== row.csrf_digest) return null;
   const role = String(row.role) as Role;
-  const overrides = await c.env.DB.prepare("SELECT module,can_view,can_create,can_edit,can_approve,can_export,can_deactivate FROM permission_overrides WHERE user_id=?")
-    .bind(row.id).all<Record<string, unknown>>();
+  let overrides:Record<string,unknown>[]=[];
+  try { overrides=JSON.parse(String(row.permission_overrides_json??"[]")) as Record<string,unknown>[]; } catch { overrides=[]; }
   return {
     id: Number(row.id), name: String(row.name), email: String(row.email), role,
     companyId: row.company_id == null ? null : Number(row.company_id),
-    activeCompanyId: await activeCompany(c.env.DB, jar[COMPANY_COOKIE], row.company_id == null ? null : Number(row.company_id), role, c.env.SESSION_HMAC_KEY),
+    activeCompanyId: row.active_company_id == null ? (row.company_id == null ? null : Number(row.company_id)) : Number(row.active_company_id),
     forcePasswordChange: Boolean(row.force_password_change),
-    permissions: applyOverrides(permissionsFor(role), overrides.results), csrfToken: csrf, sessionId: Number(row.session_id),
+    permissions: applyOverrides(permissionsFor(role), overrides), csrfToken: csrf, sessionId: Number(row.session_id),
   };
 }
 

@@ -30,6 +30,8 @@ class GuardDb {
       session_id: 91, csrf_digest: this.csrfDigest, id: 7, name: "Guard Tester",
       email: "guard@example.test", role: this.role, company_id: this.companyId,
       force_password_change: this.forcePasswordChange ? 1 : 0,
+      active_company_id: this.companyId ?? (this.role === "ADMIN" && Number(params[0]) === 1 ? 1 : null),
+      permission_overrides_json: JSON.stringify(this.overrides),
     };
     if (query.startsWith("SELECT id FROM companies WHERE id=? AND active=1")) return Number(params[0]) === 1 ? { id: 1 } : null;
     if (query.includes("FROM payments WHERE id=?")) return Number(params[0]) === 10 && (!query.includes("company_id=?") || Number(params[1]) === 1)
