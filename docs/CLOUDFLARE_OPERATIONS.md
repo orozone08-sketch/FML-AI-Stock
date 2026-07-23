@@ -1,5 +1,10 @@
 # FAstockFlow Cloudflare operations
 
+Current-state orientation is maintained in `PROJECT_CONTINUITY.md` and
+`ARCHITECTURE.md`. This file is the detailed production runbook. Verify current
+HEAD, `cloudflare/wrangler.jsonc`, the latest migration, and live health before
+executing any remote command.
+
 This runbook applies only to `cloudflare/serverless-migration`. The permanent production names are Worker `fastockflow`, D1 `fastockflow-db`, and private R2 bucket `fastockflow-files`. Never create suffixed preview resources. Never attach the custom domain or alter DNS during rehearsal.
 
 ## Local setup and validation
@@ -15,7 +20,7 @@ npx wrangler dev --local
 
 The local seed is deterministic, contains only an `@local.invalid` account, forces a password change, and refuses `--remote`. Delete `.wrangler/state` and rerun `npm run db:reset` to prove migrations replay from zero.
 
-Schema `0007` adds reviewed serverless access paths rather than broad index permutations: party-first sale/receivable/payment and purchase/payable/payment indexes for all-company profiles, plus parent-key indexes for opening, purchase, sale, and transfer lines. Existing company-first indexes handle fixed-company logins. The partial party indexes avoid write amplification on the opposite payment party, while the four child indexes trade one small index write for eliminating growing scans in profile, print, edit, void, and delete paths. Do not add overlapping permutations without confirming the deployed query plan.
+Schema `0007` adds reviewed serverless access paths rather than broad index permutations: party-first sale/receivable/payment and purchase/payable/payment indexes for all-company profiles, plus parent-key indexes for opening, purchase, sale, and transfer lines. Existing company-first indexes handle fixed-company logins. The partial party indexes avoid write amplification on the opposite payment party, while the four child indexes trade one small index write for eliminating growing scans in profile, print, edit, void, and delete paths. Schema `0008` adds partial all-company dashboard indexes for active sales/purchases and open receivable/payable/inter-company working sets. Do not add overlapping permutations without confirming the deployed query plan and write cost.
 
 Production self-registration matches the legacy public company-user flow and is protected by a signed unauthenticated CSRF cookie/token pair plus login-rate controls. Cloudflare Web Crypto accepts at most 100,000 PBKDF2 iterations; imported Werkzeug password hashes with a higher iteration count must be marked for a controlled password reset before cutover because they cannot be verified at the edge.
 

@@ -3,6 +3,29 @@
 These instructions apply to the entire repository. More specific `AGENTS.md`
 files may add stricter rules for their subdirectories.
 
+## Required project context
+
+- Read `README.md` and `docs/PROJECT_CONTINUITY.md` at the start of a new
+  session. Use `docs/ARCHITECTURE.md` for runtime/data/cache design and
+  `docs/CLOUDFLARE_OPERATIONS.md` for remote operations.
+- Treat `docs/CLOUDFLARE_MIGRATION_PLAN.md` as a historical design record.
+  Current code, `wrangler.jsonc`, workflows, migrations, and live health are
+  authoritative when facts differ.
+- Update `README.md`, `docs/README.md`, `docs/PROJECT_CONTINUITY.md`, and the
+  relevant runbook in the same change when branch boundaries, architecture,
+  bindings, schema, cache strategy, commands, deployment flow, business
+  invariants, or operational risks change. Prefer links to authoritative files
+  for values likely to drift.
+- The repository is `orozone08-sketch/FML-AI-Stock`. The product is a
+  multi-company stock/accounting system covering masters, opening balances,
+  purchase, sale, transfer, FIFO, payments, outstanding, reports, exports,
+  permissions, audit, reconciliation, and private files.
+- Preserve intentional negative-stock behavior and scaled-integer accounting.
+  Document edits/deletes must rebuild all dependent FIFO, ledger, balance,
+  allocation, inter-company, and audit state atomically.
+- There is no required chatbot, OCR, Workers AI, Vectorize, or collaborative
+  realtime feature. Do not create rich-feature resources as assumed parity.
+
 ## Deployment boundaries
 
 - `main` is the legacy Flask/VM application.
@@ -15,6 +38,10 @@ files may add stricter rules for their subdirectories.
 - Treat D1, R2, KV, Durable Objects, Queues, DNS, secrets, and custom domains as
   production resources. Confirm the intended environment and resource identity
   before mutating them.
+- Current permanent identities are Worker `fastockflow`, D1
+  `fastockflow-db`/`DB`, private R2 `fastockflow-files`/`FILES`, and Durable
+  Object `AccountingCoordinator`/`ACCOUNTING`. Verify these against
+  `cloudflare/wrangler.jsonc`; never invent suffixed replacements.
 
 ## Cloudflare free-tier and quota discipline
 

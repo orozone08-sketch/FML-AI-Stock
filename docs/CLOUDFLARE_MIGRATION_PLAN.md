@@ -1,6 +1,8 @@
 # FAstockFlow Cloudflare Serverless Rewrite Plan
 
-Status: implementation plan
+Status: historical design record; implementation is deployed and current-state
+facts live in `PROJECT_CONTINUITY.md`, `ARCHITECTURE.md`,
+`CLOUDFLARE_OPERATIONS.md`, the code, migrations, workflows, and live health.
 
 Source baseline: `origin/main` at `7007c397053aedf9bafe0cf06b0d2308b215e8bc`
 
