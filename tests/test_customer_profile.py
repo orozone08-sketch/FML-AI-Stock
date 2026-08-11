@@ -202,6 +202,33 @@ def test_customer_profile_keeps_opening_receivables_visible_outside_period(clien
     assert f"/transactions/opening/receivable/{opening_id}/edit" in html
 
 
+def test_customer_profile_recognizes_legacy_opening_receivable_marker(client, app):
+    with app.app_context():
+        data = ids()
+        opening = create_opening_receivable(
+            {
+                "company_id": data["ai"].id,
+                "customer_id": data["customer"].id,
+                "sale_type": "CASH",
+                "reference_number": "PROFILE-LEGACY-OPEN-REC",
+                "invoice_date": "2026-05-31",
+                "pending_amount": "20000",
+            },
+            admin(),
+        )
+        opening.is_opening = False
+        customer_id = data["customer"].id
+        db.session.commit()
+
+    login(client)
+    response = client.get(f"/masters/customers/{customer_id}")
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "PROFILE-LEGACY-OPEN-REC" in html
+    assert "Opening Receivables" in html
+
+
 def test_customer_list_includes_supplier_master_records(client, app):
     with app.app_context():
         data = ids()

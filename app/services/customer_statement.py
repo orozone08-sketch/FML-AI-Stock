@@ -86,6 +86,7 @@ def raw_statement_entries(customer_id, company_id=None):
                 "debit": money(receivable.total_amount),
                 "credit": Decimal("0.00"),
                 "remarks": receivable.remarks or "",
+                "is_opening": receivable.is_opening or receivable.source_type == "OPENING_RECEIVABLE",
                 "sort": (receivable.document_date, 1, receivable.id),
             }
         )
@@ -157,7 +158,7 @@ def display_row(entry, running_balance):
 
 
 def receivable_particulars(receivable):
-    if receivable.is_opening:
+    if receivable.is_opening or receivable.source_type == "OPENING_RECEIVABLE":
         return "To Opening Balance"
     if receivable.source_type == "SALE":
         sale_type = receivable.transaction_type or ""
@@ -170,7 +171,7 @@ def receivable_particulars(receivable):
 
 
 def receivable_voucher_type(receivable):
-    if receivable.is_opening:
+    if receivable.is_opening or receivable.source_type == "OPENING_RECEIVABLE":
         return "Opening"
     if receivable.source_type == "SALE":
         return "Sales"

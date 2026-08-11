@@ -592,10 +592,11 @@ def due_alert_actions():
         if days > 7:
             continue
         if isinstance(document, Receivable):
-            source_type = "OPENING_RECEIVABLE" if document.is_opening else document.source_type
+            source_type = "OPENING_RECEIVABLE" if (document.is_opening or document.source_type == "OPENING_RECEIVABLE") else document.source_type
         else:
             source_type = "OPENING_PAYABLE" if document.is_opening else document.source_type
-        actions.append(source_document_actions(source_type, document.id if document.is_opening else document.source_id))
+        is_opening = document.is_opening or document.source_type in {"OPENING_RECEIVABLE", "OPENING_PAYABLE"}
+        actions.append(source_document_actions(source_type, document.id if is_opening else document.source_id))
     return actions
 
 
@@ -609,7 +610,10 @@ def opening_summary_actions():
         source_document_actions("OPENING_STOCK", layer.source_id)
         for layer in layers.order_by(FIFOLayer.source_date.desc()).all()
     )
-    receivables = scope_query_to_active_company(Receivable.query.filter_by(is_opening=True), Receivable.company_id)
+    receivables = scope_query_to_active_company(
+        Receivable.query.filter(db.or_(Receivable.is_opening.is_(True), Receivable.source_type == "OPENING_RECEIVABLE")),
+        Receivable.company_id,
+    )
     actions.extend(
         source_document_actions("OPENING_RECEIVABLE", record.id)
         for record in receivables.all()
@@ -1123,7 +1127,10 @@ def opening_summary_rows():
     layers = scope_query_to_active_company(FIFOLayer.query.filter_by(source_type="OPENING_STOCK"), FIFOLayer.company_id)
     for layer in layers.order_by(FIFOLayer.source_date.desc()).all():
         rows.append(["Opening stock", layer.company.code, layer.stock_book.name, layer.source_reference, layer.source_date, fmt_money(layer.original_value), "", fmt_qty(layer.original_quantity), "", creator_name(layer.created_by_id)])
-    receivables = scope_query_to_active_company(Receivable.query.filter_by(is_opening=True), Receivable.company_id)
+    receivables = scope_query_to_active_company(
+        Receivable.query.filter(db.or_(Receivable.is_opening.is_(True), Receivable.source_type == "OPENING_RECEIVABLE")),
+        Receivable.company_id,
+    )
     for rec in receivables.all():
         rows.append(["Opening receivable", rec.company.code, rec.customer.name if rec.customer else "", rec.document_number, rec.document_date, fmt_money(rec.total_amount), fmt_money(rec.paid_amount), fmt_money(rec.balance_amount), rec.payment_status, creator_name(rec.created_by_id)])
     payables = scope_query_to_active_company(Payable.query.filter_by(is_opening=True), Payable.company_id)

@@ -28,7 +28,7 @@ def month_bounds(key):
 
 
 def receivable_particulars(receivable):
-    if receivable.is_opening:
+    if receivable.is_opening or receivable.source_type == "OPENING_RECEIVABLE":
         return "Opening receivable"
     if receivable.source_type == "SALE":
         return f"Sales {receivable.transaction_type or ''}".strip()
@@ -36,7 +36,7 @@ def receivable_particulars(receivable):
 
 
 def receivable_voucher_type(receivable):
-    if receivable.is_opening:
+    if receivable.is_opening or receivable.source_type == "OPENING_RECEIVABLE":
         return "Opening"
     if receivable.source_type == "SALE":
         return "Sales"

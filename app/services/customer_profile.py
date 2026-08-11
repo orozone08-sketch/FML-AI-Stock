@@ -204,6 +204,14 @@ def customer_receivables(customer_id, company_id=None, date_from=None, date_to=N
     return query.order_by(Receivable.document_date.desc(), Receivable.id.desc()).all()
 
 
+def opening_receivables(receivables):
+    return [
+        receivable
+        for receivable in receivables
+        if receivable.is_opening or receivable.source_type == "OPENING_RECEIVABLE"
+    ]
+
+
 def customer_payments(customer_id, company_id=None, date_from=None, date_to=None):
     query = Payment.query.filter_by(customer_id=customer_id)
     if company_id:
@@ -257,6 +265,7 @@ def customer_profile(customer_id, company_id=None, date_from=None, date_to=None)
         return None
     invoices = customer_invoices(customer_id, company_id, date_from, date_to)
     receivables = customer_receivables(customer_id, company_id, date_from, date_to)
+    opening_receivable_rows = opening_receivables(receivables)
     payments = customer_payments(customer_id, company_id, date_from, date_to)
     stock_rows = customer_stock_rows(customer_id, company_id, date_from, date_to)
     companies_by_id = company_lookup()
@@ -277,6 +286,7 @@ def customer_profile(customer_id, company_id=None, date_from=None, date_to=None)
         "companies": companies,
         "invoices": invoices,
         "receivables": receivables,
+        "opening_receivables": opening_receivable_rows,
         "payments": payments,
         "stock_rows": stock_rows,
         "documents": customer_documents(invoices),

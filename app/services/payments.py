@@ -91,7 +91,7 @@ def allocate_remaining_receivables(payment, amount, exclude_ids=None):
             Receivable.company_id == payment.company_id,
             Receivable.customer_id == payment.customer_id,
             Receivable.balance_amount > 0,
-            Receivable.is_opening.is_(False),
+            ~db.or_(Receivable.is_opening.is_(True), Receivable.source_type == "OPENING_RECEIVABLE"),
         )
         .order_by(Receivable.due_date, Receivable.document_date, Receivable.id)
     )

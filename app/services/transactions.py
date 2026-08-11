@@ -2053,7 +2053,7 @@ def void_opening_stock(opening, user):
 
 
 def delete_opening_receivable(receivable, user):
-    if not receivable.is_opening or receivable.source_type != "OPENING_RECEIVABLE":
+    if receivable.source_type != "OPENING_RECEIVABLE":
         raise ValueError("Only opening receivables can be deleted from opening balances.")
     if receivable.paid_amount:
         raise ValueError("Opening receivable cannot be deleted after receipt allocation.")
@@ -2064,7 +2064,7 @@ def delete_opening_receivable(receivable, user):
 
 
 def restore_opening_receivable_to_pending(receivable, user):
-    if not receivable.is_opening or receivable.source_type != "OPENING_RECEIVABLE":
+    if receivable.source_type != "OPENING_RECEIVABLE":
         raise ValueError("Only opening receivables can be restored as pending.")
 
     before = {
@@ -2174,7 +2174,7 @@ def create_opening_receivable(data, user):
 
 
 def update_opening_receivable(receivable, data, user):
-    if not receivable.is_opening or receivable.source_type != "OPENING_RECEIVABLE":
+    if receivable.source_type != "OPENING_RECEIVABLE":
         raise ValueError("Only opening receivables can be edited from opening balances.")
     company = db.session.get(Company, int(data.get("company_id") or receivable.company_id))
     if not company or not company.active:
