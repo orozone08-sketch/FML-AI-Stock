@@ -173,6 +173,35 @@ def test_customer_profile_displays_opening_receivables(client, app):
     assert f"/transactions/opening/receivable/{opening_id}/delete" in html
 
 
+def test_customer_profile_keeps_opening_receivables_visible_outside_period(client, app):
+    with app.app_context():
+        data = ids()
+        opening = create_opening_receivable(
+            {
+                "company_id": data["ai"].id,
+                "customer_id": data["customer"].id,
+                "sale_type": "CASH",
+                "reference_number": "PROFILE-OLD-OPEN-REC",
+                "invoice_date": "2025-03-31",
+                "pending_amount": "20000",
+            },
+            admin(),
+        )
+        customer_id = data["customer"].id
+        opening_id = opening.id
+        db.session.commit()
+
+    login(client)
+    response = client.get(
+        f"/masters/customers/{customer_id}?date_from=2026-06-01&date_to=2026-06-30"
+    )
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "PROFILE-OLD-OPEN-REC" in html
+    assert f"/transactions/opening/receivable/{opening_id}/edit" in html
+
+
 def test_customer_list_includes_supplier_master_records(client, app):
     with app.app_context():
         data = ids()

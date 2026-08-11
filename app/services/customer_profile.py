@@ -189,10 +189,18 @@ def customer_receivables(customer_id, company_id=None, date_from=None, date_to=N
     query = Receivable.query.filter_by(customer_id=customer_id)
     if company_id:
         query = query.filter(Receivable.company_id == company_id)
+    period_filters = []
     if date_from:
-        query = query.filter(Receivable.document_date >= date_from)
+        period_filters.append(Receivable.document_date >= date_from)
     if date_to:
-        query = query.filter(Receivable.document_date <= date_to)
+        period_filters.append(Receivable.document_date <= date_to)
+    if period_filters:
+        query = query.filter(
+            db.or_(
+                Receivable.is_opening.is_(True),
+                db.and_(*period_filters),
+            )
+        )
     return query.order_by(Receivable.document_date.desc(), Receivable.id.desc()).all()
 
 
