@@ -529,7 +529,19 @@ def source_document_actions(source_type, source_id):
     mapping = mappings.get(source_type)
     if not mapping:
         return []
-    return action_pair(*mapping)
+    actions = action_pair(*mapping)
+    if source_type == "OPENING_RECEIVABLE":
+        receivable = db.session.get(Receivable, source_id)
+        if receivable and receivable.paid_amount and (can(current_user, "opening", "edit") or can(current_user, "opening", "create")):
+            actions.append({
+                "label": "Restore Pending",
+                "method": "post",
+                "url": url_for("transactions.opening_receivable_restore_pending", receivable_id=source_id),
+                "confirm": "Reverse allocations for this opening receivable and restore its full pending balance?",
+                "title": "Restore this opening receivable as pending",
+                "button_class": "link-button",
+            })
+    return actions
 
 
 def payment_actions(payment):
@@ -1106,21 +1118,22 @@ def inter_company_rows():
 
 
 def opening_summary_rows():
-    headers = ["Type", "Company", "Party/Book", "Document", "Date", "Amount/Value", "Balance/Qty", "Created by"]
+    headers = ["Type", "Company", "Party/Book", "Document", "Date", "Amount/Value", "Paid/Allocated", "Balance/Qty", "Status", "Created by"]
     rows = []
     layers = scope_query_to_active_company(FIFOLayer.query.filter_by(source_type="OPENING_STOCK"), FIFOLayer.company_id)
     for layer in layers.order_by(FIFOLayer.source_date.desc()).all():
-        rows.append(["Opening stock", layer.company.code, layer.stock_book.name, layer.source_reference, layer.source_date, fmt_money(layer.original_value), fmt_qty(layer.original_quantity), creator_name(layer.created_by_id)])
+        rows.append(["Opening stock", layer.company.code, layer.stock_book.name, layer.source_reference, layer.source_date, fmt_money(layer.original_value), "", fmt_qty(layer.original_quantity), "", creator_name(layer.created_by_id)])
     receivables = scope_query_to_active_company(Receivable.query.filter_by(is_opening=True), Receivable.company_id)
     for rec in receivables.all():
-        rows.append(["Opening receivable", rec.company.code, rec.customer.name if rec.customer else "", rec.document_number, rec.document_date, fmt_money(rec.total_amount), fmt_money(rec.balance_amount), creator_name(rec.created_by_id)])
+        rows.append(["Opening receivable", rec.company.code, rec.customer.name if rec.customer else "", rec.document_number, rec.document_date, fmt_money(rec.total_amount), fmt_money(rec.paid_amount), fmt_money(rec.balance_amount), rec.payment_status, creator_name(rec.created_by_id)])
     payables = scope_query_to_active_company(Payable.query.filter_by(is_opening=True), Payable.company_id)
     for pay in payables.all():
-        rows.append(["Opening payable", pay.company.code, pay.supplier.name if pay.supplier else "", pay.document_number, pay.document_date, fmt_money(pay.total_amount), fmt_money(pay.balance_amount), creator_name(pay.created_by_id)])
+        rows.append(["Opening payable", pay.company.code, pay.supplier.name if pay.supplier else "", pay.document_number, pay.document_date, fmt_money(pay.total_amount), fmt_money(pay.paid_amount), fmt_money(pay.balance_amount), pay.payment_status, creator_name(pay.created_by_id)])
     payments = scope_query_to_active_company(Payment.query.filter(Payment.payment_type.like("OPENING_ADVANCE%")), Payment.company_id)
     for payment in payments.all():
         party = payment.customer.name if payment.customer else payment.supplier.name if payment.supplier else ""
-        rows.append([payment.payment_type, payment.company.code, party, payment.reference_number or "", payment.payment_date, fmt_money(payment.total_amount), fmt_money(payment.unallocated_amount), creator_name(payment.created_by_id)])
+        status = "UNALLOCATED" if payment.unallocated_amount > 0 else "ALLOCATED"
+        rows.append([payment.payment_type, payment.company.code, party, payment.reference_number or "", payment.payment_date, fmt_money(payment.total_amount), fmt_money(payment.allocated_amount), fmt_money(payment.unallocated_amount), status, creator_name(payment.created_by_id)])
     return headers, rows
 
 

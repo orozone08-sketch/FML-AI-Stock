@@ -126,6 +126,12 @@
                     <button class="danger-link" type="submit">Delete</button>
                   </form>
                 {% endif %}
+                {% if receivable.paid_amount and (can(current_user, 'opening', 'edit') or can(current_user, 'opening', 'create')) %}
+                  <form method="post" action="{{ url_for('transactions.opening_receivable_restore_pending', receivable_id=receivable.id) }}" data-confirm="Reverse all allocations for this opening receivable and restore the full pending balance?">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="link-button" type="submit">Restore Pending</button>
+                  </form>
+                {% endif %}
               </td>
             </tr>
           {% else %}

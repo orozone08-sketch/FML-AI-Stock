@@ -2063,6 +2063,54 @@ def delete_opening_receivable(receivable, user):
     return receivable
 
 
+def restore_opening_receivable_to_pending(receivable, user):
+    if not receivable.is_opening or receivable.source_type != "OPENING_RECEIVABLE":
+        raise ValueError("Only opening receivables can be restored as pending.")
+
+    before = {
+        "document_number": receivable.document_number,
+        "total_amount": receivable.total_amount,
+        "paid_amount": receivable.paid_amount,
+        "balance_amount": receivable.balance_amount,
+        "payment_status": receivable.payment_status,
+    }
+    allocations = PaymentAllocation.query.filter_by(
+        target_type="RECEIVABLE",
+        target_id=receivable.id,
+    ).all()
+    reversed_amount = Decimal("0.00")
+    for allocation in allocations:
+        amount = money(allocation.amount)
+        payment = db.session.get(Payment, allocation.payment_id)
+        if payment:
+            payment.allocated_amount = money(max(payment.allocated_amount - amount, Decimal("0.00")))
+            payment.unallocated_amount = money(payment.total_amount - payment.allocated_amount)
+        reversed_amount = money(reversed_amount + amount)
+        db.session.delete(allocation)
+
+    receivable.paid_amount = Decimal("0.00")
+    receivable.balance_amount = money(receivable.total_amount)
+    receivable.payment_status = payment_status(receivable.total_amount, Decimal("0.00"))
+    receivable.updated_by_id = getattr(user, "id", None)
+    audit(
+        "edit",
+        "OpeningReceivable",
+        receivable.id,
+        receivable.document_number,
+        before=before,
+        after={
+            "document_number": receivable.document_number,
+            "total_amount": receivable.total_amount,
+            "paid_amount": receivable.paid_amount,
+            "balance_amount": receivable.balance_amount,
+            "payment_status": receivable.payment_status,
+            "reversed_allocation": reversed_amount,
+        },
+        user=user,
+    )
+    return receivable
+
+
 def delete_opening_payable(payable, user):
     if not payable.is_opening or payable.source_type != "OPENING_PAYABLE":
         raise ValueError("Only opening payables can be deleted from opening balances.")

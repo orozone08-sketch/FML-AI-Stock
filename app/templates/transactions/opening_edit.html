@@ -6,7 +6,7 @@
   'advance': 'Opening Advance'
 } %}
 {% block page_title %}Edit {{ title_map.get(section, 'Opening Balance') }}{% endblock %}
-{% block page_subtitle %}Update opening balance details. After allocation, company and party stay locked and amount cannot go below paid/received value.{% endblock %}
+{% block page_subtitle %}Update opening balance details. Review the total, paid, pending, and status values before saving.{% endblock %}
 {% block content %}
   <section class="panel">
     <form method="post" class="form-grid wide">
@@ -54,7 +54,12 @@
         <label>Old invoice/ref <input name="reference_number" value="{{ record.document_number }}"></label>
         <label>Invoice date <input name="invoice_date" type="date" value="{{ record.document_date or '' }}"></label>
         <label>Due date <input name="due_date" type="date" value="{{ record.due_date or '' }}"></label>
-        <label>Pending amount <input name="pending_amount" type="number" step="0.01" min="0" value="{{ record.total_amount }}" required></label>
+        <label>Total opening amount <input name="pending_amount" type="number" step="0.01" min="0" value="{{ record.total_amount }}" required></label>
+        <div class="detail-grid full-span">
+          <div><span>Paid amount</span><strong>{{ fmt_money(record.paid_amount) }}</strong></div>
+          <div><span>Pending balance</span><strong>{{ fmt_money(record.balance_amount) }}</strong></div>
+          <div><span>Status</span><strong>{{ record.payment_status }}</strong></div>
+        </div>
         <label class="full-span">Remarks <textarea name="remarks">{{ record.remarks or '' }}</textarea></label>
       {% elif section == 'payable' %}
         <label>Company
@@ -93,5 +98,11 @@
         <button class="primary-button" type="submit">Save Changes</button>
       </div>
     </form>
+    {% if section == 'receivable' and record.paid_amount %}
+      <form method="post" action="{{ url_for('transactions.opening_receivable_restore_pending', receivable_id=record.id) }}" data-confirm="Reverse all allocations for this opening receivable and restore the full pending balance?">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="danger-link" type="submit">Restore as Pending</button>
+      </form>
+    {% endif %}
   </section>
 {% endblock %}

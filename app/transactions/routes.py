@@ -47,6 +47,7 @@ from app.services.transactions import (
     delete_opening_payable,
     delete_opening_receivable,
     pending_transfer_summary,
+    restore_opening_receivable_to_pending,
     update_opening_advance,
     update_opening_payable,
     update_opening_receivable,
@@ -608,6 +609,26 @@ def opening_receivable_edit(receivable_id):
             db.session.rollback()
             flash(str(exc), "danger")
     return render_template("transactions/opening_edit.html", section="receivable", record=receivable, **options(scope_to_active_company=True))
+
+
+@bp.route("/opening/receivable/<int:receivable_id>/restore-pending", methods=["POST"])
+@login_required
+def opening_receivable_restore_pending(receivable_id):
+    if not (can(current_user, "opening", "edit") or can(current_user, "opening", "create")):
+        abort(403)
+    receivable = db.session.get(Receivable, receivable_id)
+    if not receivable:
+        flash("Opening receivable not found.", "danger")
+        return redirect(url_for("transactions.opening"))
+    require_active_company_document(receivable.company_id)
+    try:
+        restore_opening_receivable_to_pending(receivable, current_user)
+        db.session.commit()
+        flash("Opening receivable restored as pending.", "success")
+    except Exception as exc:
+        db.session.rollback()
+        flash(str(exc), "danger")
+    return redirect(url_for("transactions.opening"))
 
 
 @bp.route("/opening/payable/<int:payable_id>/delete", methods=["POST"])

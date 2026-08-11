@@ -8,6 +8,7 @@ from app.models import (
     OpeningStock,
     Payable,
     Payment,
+    PaymentAllocation,
     Receivable,
     StockLedgerEntry,
 )
@@ -425,6 +426,68 @@ def test_receipt_remainder_does_not_auto_allocate_opening_receivable(client, app
         assert opening.balance_amount == 20000
         assert payment.allocated_amount == 100
         assert payment.unallocated_amount == 400
+
+
+def test_opening_receivable_can_be_restored_as_pending_across_reports(client, app):
+    with app.app_context():
+        data = ids()
+        opening = create_opening_receivable(
+            {
+                "company_id": data["ai"].id,
+                "customer_id": data["customer"].id,
+                "sale_type": "CASH",
+                "reference_number": "OPEN-REC-RESTORE-PENDING",
+                "invoice_date": "2026-06-21",
+                "pending_amount": "20000",
+            },
+            admin(),
+        )
+        payment = create_customer_receipt(
+            {
+                "company_id": data["ai"].id,
+                "customer_id": data["customer"].id,
+                "receivable_id": opening.id,
+                "payment_date": "2026-06-25",
+                "amount": "20000",
+                "mode": "CASH",
+                "reference_number": "OPEN-REC-RESTORE-PAY",
+            },
+            admin(),
+        )
+        opening_id = opening.id
+        db.session.commit()
+
+    login(client)
+    edit_response = client.get(f"/transactions/opening/receivable/{opening_id}/edit")
+    assert edit_response.status_code == 200
+    assert b"Pending balance" in edit_response.data
+    assert b"Restore as Pending" in edit_response.data
+
+    report_response = client.get("/reports/opening-summary")
+    assert report_response.status_code == 200
+    assert b"Restore Pending" in report_response.data
+
+    response = client.post(
+        f"/transactions/opening/receivable/{opening_id}/restore-pending",
+        follow_redirects=True,
+    )
+    assert response.status_code == 200
+    assert b"Opening receivable restored as pending." in response.data
+
+    with app.app_context():
+        opening = db.session.get(Receivable, opening_id)
+        payment = Payment.query.filter_by(reference_number="OPEN-REC-RESTORE-PAY").one()
+        assert opening.paid_amount == 0
+        assert opening.balance_amount == 20000
+        assert opening.payment_status == "UNPAID"
+        assert payment.allocated_amount == 0
+        assert payment.unallocated_amount == 20000
+        assert PaymentAllocation.query.filter_by(target_id=opening_id, target_type="RECEIVABLE").count() == 0
+
+    opening_report = client.get("/reports/opening-summary").get_data(as_text=True)
+    assert "OPEN-REC-RESTORE-PENDING" in opening_report
+    assert "20,000.00" in opening_report
+    assert "UNPAID" in opening_report
 
 
 def test_allocated_opening_payable_can_be_safely_edited(client, app):
