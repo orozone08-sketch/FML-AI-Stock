@@ -377,6 +377,56 @@ def test_allocated_opening_receivable_can_be_safely_edited(client, app):
         assert receivable.total_amount == 90000
 
 
+def test_receipt_remainder_does_not_auto_allocate_opening_receivable(client, app):
+    with app.app_context():
+        data = ids()
+        regular = Receivable(
+            company_id=data["ai"].id,
+            customer_id=data["customer"].id,
+            source_type="SALE",
+            source_id=999999,
+            document_number="REGULAR-REC-REMAINDER",
+            document_date=date(2026, 6, 20),
+            total_amount=100,
+            balance_amount=100,
+            payment_status="UNPAID",
+            is_opening=False,
+        )
+        db.session.add(regular)
+        db.session.flush()
+        opening = create_opening_receivable(
+            {
+                "company_id": data["ai"].id,
+                "customer_id": data["customer"].id,
+                "sale_type": "CASH",
+                "reference_number": "OPEN-REC-REMAINDER",
+                "invoice_date": "2026-06-21",
+                "pending_amount": "20000",
+            },
+            admin(),
+        )
+        payment = create_customer_receipt(
+            {
+                "company_id": data["ai"].id,
+                "customer_id": data["customer"].id,
+                "receivable_id": regular.id,
+                "payment_date": "2026-06-25",
+                "amount": "500",
+                "mode": "CASH",
+                "reference_number": "OPEN-REC-REMAINDER-PAY",
+            },
+            admin(),
+        )
+        db.session.commit()
+
+        assert regular.paid_amount == 100
+        assert regular.balance_amount == 0
+        assert opening.paid_amount == 0
+        assert opening.balance_amount == 20000
+        assert payment.allocated_amount == 100
+        assert payment.unallocated_amount == 400
+
+
 def test_allocated_opening_payable_can_be_safely_edited(client, app):
     with app.app_context():
         data = ids()

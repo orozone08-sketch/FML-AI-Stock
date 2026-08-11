@@ -1,7 +1,7 @@
 from app.extensions import db
 from app.models import Customer, Receivable
 from app.services.payments import create_customer_receipt
-from app.services.transactions import create_sale
+from app.services.transactions import create_opening_receivable, create_sale
 from tests.test_fifo_workflows import admin, ids
 from tests.test_navigation import login
 
@@ -142,6 +142,35 @@ def test_customer_profile_period_filters_invoices_and_summary(client, app):
     assert "Period 2026-06-01 to 2026-06-30" in html
     assert "PROFILE-INV-1" in html
     assert "PROFILE-OLD-INV" not in html
+
+
+def test_customer_profile_displays_opening_receivables(client, app):
+    with app.app_context():
+        data = ids()
+        opening = create_opening_receivable(
+            {
+                "company_id": data["ai"].id,
+                "customer_id": data["customer"].id,
+                "sale_type": "CASH",
+                "reference_number": "PROFILE-OPEN-REC",
+                "invoice_date": "2026-06-20",
+                "pending_amount": "20000",
+            },
+            admin(),
+        )
+        customer_id = data["customer"].id
+        opening_id = opening.id
+        db.session.commit()
+
+    login(client)
+    response = client.get(f"/masters/customers/{customer_id}")
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "Opening Receivables" in html
+    assert "PROFILE-OPEN-REC" in html
+    assert f"/transactions/opening/receivable/{opening_id}/edit" in html
+    assert f"/transactions/opening/receivable/{opening_id}/delete" in html
 
 
 def test_customer_list_includes_supplier_master_records(client, app):
