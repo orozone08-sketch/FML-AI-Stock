@@ -42,7 +42,14 @@
               {% if row_actions and row_actions|select|list %}
                 <td class="actions">
                   {% for action in row_actions[loop.index0] %}
-                    <a class="table-action" href="{{ action.url }}" title="{{ action.title }}">{{ action.label }}</a>
+                    {% if action.method|default('get') == 'post' %}
+                      <form method="post" action="{{ action.url }}" data-confirm="{{ action.confirm }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button class="{{ action.button_class|default('link-button') }}" type="submit" title="{{ action.title }}">{{ action.label }}</button>
+                      </form>
+                    {% else %}
+                      <a class="table-action" href="{{ action.url }}" title="{{ action.title }}">{{ action.label }}</a>
+                    {% endif %}
                   {% endfor %}
                 </td>
               {% endif %}

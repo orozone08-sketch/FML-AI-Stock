@@ -36,8 +36,9 @@ def test_monthly_sales_and_purchase_reports(client, app):
     with app.app_context():
         data = ids()
         ai_company_id = data["ai"].id
+        sales_ids = []
         for number, rate in [("MONTH-SALE-1", "100"), ("MONTH-SALE-2", "200")]:
-            create_sale(
+            record = create_sale(
                 {
                     "company_id": data["ai"].id,
                     "stock_book_id": data["ai_gst"].id,
@@ -49,8 +50,10 @@ def test_monthly_sales_and_purchase_reports(client, app):
                 [{"item_id": data["item"].id, "quantity": "1", "rate": rate, "gst_percent": "0"}],
                 admin(),
             )
+            sales_ids.append(record.id)
+        purchase_ids = []
         for number, rate in [("MONTH-PUR-1", "50"), ("MONTH-PUR-2", "150")]:
-            create_purchase(
+            record = create_purchase(
                 {
                     "company_id": data["ai"].id,
                     "stock_book_id": data["ai_gst"].id,
@@ -62,6 +65,7 @@ def test_monthly_sales_and_purchase_reports(client, app):
                 [{"item_id": data["item"].id, "quantity": "1", "rate": rate, "gst_percent": "0"}],
                 admin(),
             )
+            purchase_ids.append(record.id)
         db.session.commit()
 
     login(client)
@@ -90,9 +94,13 @@ def test_monthly_sales_and_purchase_reports(client, app):
     assert sales_detail.status_code == 200
     assert b"MONTH-SALE-1" in sales_detail.data
     assert b"MONTH-SALE-2" in sales_detail.data
+    assert f"/transactions/sale/{sales_ids[0]}/edit".encode() in sales_detail.data
+    assert f"/transactions/sale/{sales_ids[0]}/delete".encode() in sales_detail.data
     assert purchases_detail.status_code == 200
     assert b"MONTH-PUR-1" in purchases_detail.data
     assert b"MONTH-PUR-2" in purchases_detail.data
+    assert f"/transactions/purchase/{purchase_ids[0]}/edit".encode() in purchases_detail.data
+    assert f"/transactions/purchase/{purchase_ids[0]}/delete".encode() in purchases_detail.data
 
 
 def test_outstanding_customer_search_shows_filtered_balance_summary(client, app):

@@ -2,11 +2,11 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
-from flask_login import login_required
+from flask_login import current_user, login_required
 
 from app.core.company_context import active_company
 from app.core.formatting import fmt_money, fmt_qty, money
-from app.core.security import require_permission
+from app.core.security import can, require_permission
 from app.extensions import db
 from app.models import (
     AuditLog,
@@ -421,15 +421,198 @@ def monthly_detail_urls(name, rows):
 
 
 def report_row_actions(name, rows):
+    if name == "purchases":
+        return [
+            source_document_actions("PURCHASE", purchase.id)
+            for purchase in purchase_report_query().order_by(Purchase.bill_date.desc(), Purchase.id.desc()).all()
+        ]
+    if name == "sales":
+        return [
+            source_document_actions("SALE", sale.id)
+            for sale in sale_report_query().order_by(Sale.invoice_date.desc(), Sale.id.desc()).all()
+        ]
+    if name in {"purchases-monthly", "sales-monthly"}:
+        detail_name = "sales" if name == "sales-monthly" else "purchases"
+        detail_urls = monthly_detail_urls(name, rows)
+        return [
+            [{"label": "Open full report", "url": detail_url, "title": f"Open {detail_name} for this month"}]
+            for detail_url in detail_urls
+        ]
+    if name == "sales-by-type":
+        company_ids = {company.code: company.id for company in Company.query.all()}
+        return [
+            [{
+                "label": "Open sales",
+                "url": url_for(
+                    "reports.show",
+                    name="sales",
+                    company_id=company_ids.get(row[0]),
+                    sale_type=row[1],
+                ),
+                "title": "Open the matching sales records",
+            }]
+            for row in rows
+        ]
+    if name == "fifo-layers":
+        query = scope_query_to_active_company(FIFOLayer.query, FIFOLayer.company_id)
+        layers = query.order_by(FIFOLayer.source_date, FIFOLayer.id).all()
+        history_actions = stock_item_history_actions(rows, company_index=0, stock_book_index=1, item_index=2, item_mode="display")
+        return [
+            source_document_actions(layer.source_type, layer.source_id) + history_actions[index]
+            for index, layer in enumerate(layers)
+        ]
+    if name == "stock-ledger":
+        query = scope_query_to_active_company(StockLedgerEntry.query, StockLedgerEntry.company_id)
+        entries = query.order_by(StockLedgerEntry.entry_date, StockLedgerEntry.id).all()
+        history_actions = stock_item_history_actions(rows, company_index=1, stock_book_index=2, item_index=3, item_mode="display")
+        return [
+            source_document_actions(entry.transaction_type, entry.transaction_id) + history_actions[index]
+            for index, entry in enumerate(entries)
+        ]
+    if name == "gross-profit":
+        query = scope_query_to_active_company(
+            SaleLine.query.join(Sale).filter(Sale.is_void.is_(False)),
+            Sale.company_id,
+        )
+        lines = query.order_by(Sale.invoice_date.desc()).all()
+        return [source_document_actions("SALE", line.sale.id) for line in lines]
+    if name in {"advances", "payment-history"}:
+        query = Payment.query
+        if name == "advances":
+            query = query.filter(Payment.unallocated_amount > 0)
+        query = scope_query_to_active_company(query, Payment.company_id)
+        payments = query.order_by(Payment.payment_date.desc(), Payment.id.desc()).all()
+        return [payment_actions(payment) for payment in payments]
+    if name == "due-alerts":
+        return due_alert_actions()
+    if name == "opening-summary":
+        return opening_summary_actions()
     if name in {"current-stock", "fifo-valuation"}:
         return stock_item_history_actions(rows, company_index=0, stock_book_index=1, item_index=2, item_mode="code")
-    if name == "fifo-layers":
-        return stock_item_history_actions(rows, company_index=0, stock_book_index=1, item_index=2, item_mode="display")
-    if name == "stock-ledger":
-        return stock_item_history_actions(rows, company_index=1, stock_book_index=2, item_index=3, item_mode="display")
     if name == "stock-alerts":
         return stock_item_history_actions(rows, company_index=1, stock_book_index=2, item_index=3, item_mode="display")
     return [[] for _ in rows]
+
+
+def action_pair(edit_endpoint, edit_args, delete_endpoint, delete_args, module, label):
+    actions = []
+    if can(current_user, module, "edit") or can(current_user, module, "create"):
+        actions.append({
+            "label": "Edit",
+            "url": url_for(edit_endpoint, **edit_args),
+            "title": f"Edit this {label}",
+        })
+    if can(current_user, module, "edit") or can(current_user, module, "deactivate"):
+        actions.append({
+            "label": "Delete",
+            "method": "post",
+            "url": url_for(delete_endpoint, **delete_args),
+            "confirm": f"Delete this {label}?",
+            "title": f"Delete this {label}",
+            "button_class": "danger-link",
+        })
+    return actions
+
+
+def source_document_actions(source_type, source_id):
+    mappings = {
+        "PURCHASE": ("transactions.purchase_edit", {"purchase_id": source_id}, "transactions.purchase_delete", {"purchase_id": source_id}, "purchase", "purchase"),
+        "SALE": ("transactions.sale_edit", {"sale_id": source_id}, "transactions.sale_delete", {"sale_id": source_id}, "sale", "sale"),
+        "TRANSFER": ("transactions.transfer_edit", {"transfer_id": source_id}, "transactions.transfer_delete", {"transfer_id": source_id}, "transfer", "transfer"),
+        "TRANSFER_IN": ("transactions.transfer_edit", {"transfer_id": source_id}, "transactions.transfer_delete", {"transfer_id": source_id}, "transfer", "transfer"),
+        "TRANSFER_RETURN": ("transactions.transfer_edit", {"transfer_id": source_id}, "transactions.transfer_delete", {"transfer_id": source_id}, "transfer", "transfer"),
+        "OPENING_STOCK": ("transactions.opening_stock_edit", {"opening_id": source_id}, "transactions.opening_stock_delete", {"opening_id": source_id}, "opening", "opening stock"),
+        "OPENING_RECEIVABLE": ("transactions.opening_receivable_edit", {"receivable_id": source_id}, "transactions.opening_receivable_delete", {"receivable_id": source_id}, "opening", "opening receivable"),
+        "OPENING_PAYABLE": ("transactions.opening_payable_edit", {"payable_id": source_id}, "transactions.opening_payable_delete", {"payable_id": source_id}, "opening", "opening payable"),
+        "INTER_COMPANY": ("transactions.transfer_edit", {"transfer_id": source_id}, "transactions.transfer_delete", {"transfer_id": source_id}, "transfer", "transfer"),
+    }
+    mapping = mappings.get(source_type)
+    if not mapping:
+        return []
+    return action_pair(*mapping)
+
+
+def payment_actions(payment):
+    if payment.payment_type.startswith("OPENING_ADVANCE"):
+        return action_pair(
+            "transactions.opening_advance_edit",
+            {"payment_id": payment.id},
+            "transactions.opening_advance_delete",
+            {"payment_id": payment.id},
+            "opening",
+            "opening advance",
+        )
+    actions = []
+    if can(current_user, "payments", "edit") or can(current_user, "payments", "deactivate"):
+        actions.append({
+            "label": "Edit",
+            "url": url_for("payments.payment_edit", payment_id=payment.id),
+            "title": "Edit this payment",
+        })
+        actions.append({
+            "label": "Delete",
+            "method": "post",
+            "url": url_for("payments.payment_delete", payment_id=payment.id),
+            "confirm": "Delete this payment and reverse its allocation?",
+            "title": "Delete this payment",
+            "button_class": "danger-link",
+        })
+    return actions
+
+
+def due_alert_actions():
+    today = date.today()
+    receivables = scope_query_to_active_company(
+        Receivable.query.filter(Receivable.balance_amount > 0),
+        Receivable.company_id,
+    )
+    payables = scope_query_to_active_company(
+        Payable.query.filter(Payable.balance_amount > 0),
+        Payable.company_id,
+    )
+    documents = [(rec, "Receivable") for rec in receivables.all()]
+    documents += [(pay, "Payable") for pay in payables.all()]
+    actions = []
+    for document, _label in sorted(documents, key=lambda pair: pair[0].due_date or date.max):
+        if not document.due_date:
+            continue
+        days = (document.due_date - today).days
+        if days > 7:
+            continue
+        if isinstance(document, Receivable):
+            source_type = "OPENING_RECEIVABLE" if document.is_opening else document.source_type
+        else:
+            source_type = "OPENING_PAYABLE" if document.is_opening else document.source_type
+        actions.append(source_document_actions(source_type, document.id if document.is_opening else document.source_id))
+    return actions
+
+
+def opening_summary_actions():
+    actions = []
+    layers = scope_query_to_active_company(
+        FIFOLayer.query.filter_by(source_type="OPENING_STOCK"),
+        FIFOLayer.company_id,
+    )
+    actions.extend(
+        source_document_actions("OPENING_STOCK", layer.source_id)
+        for layer in layers.order_by(FIFOLayer.source_date.desc()).all()
+    )
+    receivables = scope_query_to_active_company(Receivable.query.filter_by(is_opening=True), Receivable.company_id)
+    actions.extend(
+        source_document_actions("OPENING_RECEIVABLE", record.id)
+        for record in receivables.all()
+    )
+    payables = scope_query_to_active_company(Payable.query.filter_by(is_opening=True), Payable.company_id)
+    actions.extend(
+        source_document_actions("OPENING_PAYABLE", record.id)
+        for record in payables.all()
+    )
+    payments = scope_query_to_active_company(
+        Payment.query.filter(Payment.payment_type.like("OPENING_ADVANCE%")),
+        Payment.company_id,
+    )
+    actions.extend(payment_actions(payment) for payment in payments.all())
+    return actions
 
 
 def stock_item_history_actions(rows, company_index, stock_book_index, item_index, item_mode):
@@ -566,9 +749,7 @@ def stock_ledger_rows():
     return headers, rows
 
 
-def purchase_rows():
-    headers = ["Date", "Company", "Book", "Supplier", "Bill", "Type", "Subtotal", "GST", "Grand total", "Paid", "Balance", "Status", "Created by"]
-    rows = []
+def purchase_report_query():
     query = scope_query_to_active_company(Purchase.query.filter_by(is_void=False), Purchase.company_id)
     selected_company_id = selected_report_company_id()
     if selected_company_id:
@@ -576,7 +757,27 @@ def purchase_rows():
     start, end = month_bounds()
     if start:
         query = query.filter(Purchase.bill_date >= start, Purchase.bill_date < end)
-    for purchase in query.order_by(Purchase.bill_date.desc(), Purchase.id.desc()).all():
+    return query
+
+
+def sale_report_query():
+    query = scope_query_to_active_company(Sale.query.filter_by(is_void=False), Sale.company_id)
+    selected_company_id = selected_report_company_id()
+    if selected_company_id:
+        query = query.filter(Sale.company_id == selected_company_id)
+    sale_type = (request.args.get("sale_type") or "").strip()
+    if sale_type:
+        query = query.filter(Sale.sale_type == sale_type)
+    start, end = month_bounds()
+    if start:
+        query = query.filter(Sale.invoice_date >= start, Sale.invoice_date < end)
+    return query
+
+
+def purchase_rows():
+    headers = ["Date", "Company", "Book", "Supplier", "Bill", "Type", "Subtotal", "GST", "Grand total", "Paid", "Balance", "Status", "Created by"]
+    rows = []
+    for purchase in purchase_report_query().order_by(Purchase.bill_date.desc(), Purchase.id.desc()).all():
         rows.append([
             purchase.bill_date,
             purchase.company.code,
@@ -640,14 +841,7 @@ def purchase_monthly_rows():
 def sales_rows():
     headers = ["Date", "Company", "Book", "Customer", "Invoice", "Type", "Subtotal", "GST", "Grand total", "FIFO cost", "Gross profit", "Balance", "Status", "Created by"]
     rows = []
-    query = scope_query_to_active_company(Sale.query.filter_by(is_void=False), Sale.company_id)
-    selected_company_id = selected_report_company_id()
-    if selected_company_id:
-        query = query.filter(Sale.company_id == selected_company_id)
-    start, end = month_bounds()
-    if start:
-        query = query.filter(Sale.invoice_date >= start, Sale.invoice_date < end)
-    for sale in query.order_by(Sale.invoice_date.desc(), Sale.id.desc()).all():
+    for sale in sale_report_query().order_by(Sale.invoice_date.desc(), Sale.id.desc()).all():
         rows.append([
             sale.invoice_date,
             sale.company.code,
