@@ -3271,8 +3271,8 @@ html[data-theme="dark"] .shortcut-modal {
 }
 
 .table-wrap {
-  overflow-x: auto;
-  overflow-y: visible;
+  max-height: min(70vh, 760px);
+  overflow: auto;
   scrollbar-gutter: stable;
 }
 

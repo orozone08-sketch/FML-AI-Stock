@@ -140,7 +140,7 @@ def index():
     company = active_company()
     if company:
         recent_payments = recent_payments.filter(Payment.company_id == company.id)
-    recent_payments = recent_payments.order_by(Payment.payment_date.desc(), Payment.id.desc()).limit(30).all()
+    recent_payments = recent_payments.order_by(Payment.payment_date.desc(), Payment.id.desc()).all()
     return render_template("payments/index.html", recent_payments=recent_payments, **finance_options())
 
 

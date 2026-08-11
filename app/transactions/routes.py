@@ -146,7 +146,7 @@ def purchase():
     company_id = active_company_id()
     if company_id:
         purchases = purchases.filter(Purchase.company_id == company_id)
-    purchases = purchases.order_by(Purchase.bill_date.desc(), Purchase.id.desc()).limit(20).all()
+    purchases = purchases.order_by(Purchase.bill_date.desc(), Purchase.id.desc()).all()
     return render_template("transactions/purchase.html", purchases=purchases, **options(scope_to_active_company=True))
 
 
@@ -235,7 +235,7 @@ def sale():
     company_id = active_company_id()
     if company_id:
         sales = sales.filter(Sale.company_id == company_id)
-    sales = sales.order_by(Sale.invoice_date.desc(), Sale.id.desc()).limit(20).all()
+    sales = sales.order_by(Sale.invoice_date.desc(), Sale.id.desc()).all()
     return render_template("transactions/sale.html", sales=sales, **options(scope_to_active_company=True))
 
 
@@ -342,7 +342,7 @@ def transfer():
                 InterCompanyTransfer.to_company_id == company_id,
             )
         )
-    transfers = transfers.order_by(InterCompanyTransfer.transfer_date.desc(), InterCompanyTransfer.id.desc()).limit(20).all()
+    transfers = transfers.order_by(InterCompanyTransfer.transfer_date.desc(), InterCompanyTransfer.id.desc()).all()
     return render_template(
         "transactions/transfer.html",
         transfers=transfers,
@@ -432,10 +432,10 @@ def opening():
         advances = advances.filter(Payment.company_id == company_id)
     return render_template(
         "transactions/opening.html",
-        opening_stock=opening_stock.order_by(OpeningStock.opening_date.desc()).limit(20).all(),
-        receivables=receivables.order_by(Receivable.document_date.desc()).limit(20).all(),
-        payables=payables.order_by(Payable.document_date.desc()).limit(20).all(),
-        advances=advances.order_by(Payment.payment_date.desc()).limit(20).all(),
+        opening_stock=opening_stock.order_by(OpeningStock.opening_date.desc()).all(),
+        receivables=receivables.order_by(Receivable.document_date.desc()).all(),
+        payables=payables.order_by(Payable.document_date.desc()).all(),
+        advances=advances.order_by(Payment.payment_date.desc()).all(),
         **options(),
     )
 
