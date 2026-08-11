@@ -35,6 +35,7 @@ def test_sales_report_displays_money_totals(client, app):
 def test_monthly_sales_and_purchase_reports(client, app):
     with app.app_context():
         data = ids()
+        ai_company_id = data["ai"].id
         for number, rate in [("MONTH-SALE-1", "100"), ("MONTH-SALE-2", "200")]:
             create_sale(
                 {
@@ -71,10 +72,27 @@ def test_monthly_sales_and_purchase_reports(client, app):
     assert b"Monthly Sales Report" in sales.data
     assert b"2026-06" in sales.data
     assert "₹300.00".encode() in sales.data
+    assert b"/reports/sales?month=2026-06&amp;company_id=" in sales.data
     assert purchases.status_code == 200
     assert b"Monthly Purchase Report" in purchases.data
     assert b"2026-06" in purchases.data
     assert "₹200.00".encode() in purchases.data
+    assert b"/reports/purchases?month=2026-06&amp;company_id=" in purchases.data
+
+    sales_detail = client.get(
+        "/reports/sales",
+        query_string={"month": "2026-06", "company_id": ai_company_id},
+    )
+    purchases_detail = client.get(
+        "/reports/purchases",
+        query_string={"month": "2026-06", "company_id": ai_company_id},
+    )
+    assert sales_detail.status_code == 200
+    assert b"MONTH-SALE-1" in sales_detail.data
+    assert b"MONTH-SALE-2" in sales_detail.data
+    assert purchases_detail.status_code == 200
+    assert b"MONTH-PUR-1" in purchases_detail.data
+    assert b"MONTH-PUR-2" in purchases_detail.data
 
 
 def test_outstanding_customer_search_shows_filtered_balance_summary(client, app):

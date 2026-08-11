@@ -28,8 +28,17 @@
         <thead><tr>{% for header in headers %}<th>{{ header }}</th>{% endfor %}{% if row_actions and row_actions|select|list %}<th>Actions</th>{% endif %}</tr></thead>
         <tbody>
           {% for row in rows %}
+            {% set row_index = loop.index0 %}
             <tr data-row-key="{{ request.view_args.name }}-{{ loop.index }}">
-              {% for cell in row %}<td>{{ cell }}</td>{% endfor %}
+              {% for cell in row %}
+                <td>
+                  {% if loop.index0 == 0 and month_detail_urls %}
+                    <a class="customer-link" href="{{ month_detail_urls[row_index] }}">{{ cell }}</a>
+                  {% else %}
+                    {{ cell }}
+                  {% endif %}
+                </td>
+              {% endfor %}
               {% if row_actions and row_actions|select|list %}
                 <td class="actions">
                   {% for action in row_actions[loop.index0] %}

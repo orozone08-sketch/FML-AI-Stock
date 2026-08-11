@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
@@ -144,6 +144,18 @@ def date_arg(name):
         return date.fromisoformat(value)
     except ValueError:
         return None
+
+
+def month_bounds():
+    value = (request.args.get("month") or "").strip()
+    if len(value) != 7:
+        return None, None
+    try:
+        start = date.fromisoformat(f"{value}-01")
+    except ValueError:
+        return None, None
+    next_month = (start.replace(day=28) + timedelta(days=4)).replace(day=1)
+    return start, next_month
 
 
 def selected_report_company_id():
@@ -373,6 +385,8 @@ def show(name):
         flash("Unknown report.", "danger")
         return redirect(url_for("reports.index"))
     title = REPORT_TITLES[name]
+    if name in {"sales", "purchases"} and request.args.get("month"):
+        title = f"{title} - {request.args['month']}"
     headers, rows = build_report(name)
     export_format = request.args.get("format")
     if export_format:
@@ -384,9 +398,26 @@ def show(name):
         headers=headers,
         rows=rows,
         row_actions=report_row_actions(name, rows),
+        month_detail_urls=monthly_detail_urls(name, rows),
         reports=REPORT_TITLES,
         totals=report_totals(headers, rows),
     )
+
+
+def monthly_detail_urls(name, rows):
+    if name not in {"sales-monthly", "purchases-monthly"}:
+        return []
+    detail_name = "sales" if name == "sales-monthly" else "purchases"
+    company_ids = {company.code: company.id for company in Company.query.all()}
+    return [
+        url_for(
+            "reports.show",
+            name=detail_name,
+            month=row[0],
+            company_id=company_ids.get(row[1]),
+        )
+        for row in rows
+    ]
 
 
 def report_row_actions(name, rows):
@@ -539,6 +570,12 @@ def purchase_rows():
     headers = ["Date", "Company", "Book", "Supplier", "Bill", "Type", "Subtotal", "GST", "Grand total", "Paid", "Balance", "Status", "Created by"]
     rows = []
     query = scope_query_to_active_company(Purchase.query.filter_by(is_void=False), Purchase.company_id)
+    selected_company_id = selected_report_company_id()
+    if selected_company_id:
+        query = query.filter(Purchase.company_id == selected_company_id)
+    start, end = month_bounds()
+    if start:
+        query = query.filter(Purchase.bill_date >= start, Purchase.bill_date < end)
     for purchase in query.order_by(Purchase.bill_date.desc(), Purchase.id.desc()).all():
         rows.append([
             purchase.bill_date,
@@ -604,6 +641,12 @@ def sales_rows():
     headers = ["Date", "Company", "Book", "Customer", "Invoice", "Type", "Subtotal", "GST", "Grand total", "FIFO cost", "Gross profit", "Balance", "Status", "Created by"]
     rows = []
     query = scope_query_to_active_company(Sale.query.filter_by(is_void=False), Sale.company_id)
+    selected_company_id = selected_report_company_id()
+    if selected_company_id:
+        query = query.filter(Sale.company_id == selected_company_id)
+    start, end = month_bounds()
+    if start:
+        query = query.filter(Sale.invoice_date >= start, Sale.invoice_date < end)
     for sale in query.order_by(Sale.invoice_date.desc(), Sale.id.desc()).all():
         rows.append([
             sale.invoice_date,
