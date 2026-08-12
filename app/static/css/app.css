@@ -4526,6 +4526,15 @@ html[data-theme="dark"] .report-data-table.has-row-actions tbody tr:hover td:fir
   white-space: nowrap;
 }
 
+.keyboard-section-target {
+  animation: keyboard-section-highlight 650ms ease both;
+}
+
+@keyframes keyboard-section-highlight {
+  0% { box-shadow: 0 0 0 3px rgba(182, 141, 45, 0.44), var(--shadow); }
+  100% { box-shadow: none; }
+}
+
 @media (max-width: 760px) {
   .floating-shortcut-button span:last-child {
     display: none;

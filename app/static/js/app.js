@@ -651,6 +651,7 @@ const SHORTCUT_GUIDE = [
   ["T", "Post-dated / due-date field"],
   ["J", "Stat adjustment / GST field"],
   ["Esc / Alt + ←", "Go back"],
+  ["Arrow Up / Arrow Down", "Move to the previous / next page section"],
   ["Ctrl + F", "Focus page search"],
   ["Ctrl + S / Ctrl + Enter", "Save current form"],
   ["Alt + A / Alt + N", "Add line or add entry"],
@@ -670,6 +671,34 @@ function initializeKeyboardShortcuts() {
   document.addEventListener("keydown", handleKeyboardShortcut);
 }
 
+function moveBetweenPageSections(direction) {
+  if (document.querySelector("[data-shortcut-overlay]")) return false;
+  const sections = visibleShortcutElements("main .content-container section, main .content-container article")
+    .filter((section, index, all) => all.indexOf(section) === index)
+    .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
+  if (!sections.length) return false;
+
+  const header = document.querySelector(".topbar");
+  const headerOffset = (header?.getBoundingClientRect().height || 0) + 28;
+  const currentTop = window.scrollY + headerOffset;
+  const candidates = direction < 0
+    ? sections.filter((section) => section.getBoundingClientRect().bottom + window.scrollY < currentTop - 8)
+    : sections.filter((section) => section.getBoundingClientRect().top + window.scrollY > currentTop + 8);
+  const target = direction < 0 ? candidates[candidates.length - 1] : candidates[0];
+
+  if (!target) {
+    window.scrollTo({ top: direction < 0 ? 0 : document.documentElement.scrollHeight, behavior: "smooth" });
+    showShortcutHint(direction < 0 ? "Already at the first section" : "Already at the last section");
+    return true;
+  }
+
+  const targetTop = Math.max(0, target.getBoundingClientRect().top + window.scrollY - headerOffset);
+  window.scrollTo({ top: targetTop, behavior: "smooth" });
+  target.classList.add("keyboard-section-target");
+  window.setTimeout(() => target.classList.remove("keyboard-section-target"), 650);
+  return true;
+}
+
 function handleKeyboardShortcut(event) {
   if (event.defaultPrevented || event.isComposing) return;
   const key = event.key.toLowerCase();
@@ -679,6 +708,12 @@ function handleKeyboardShortcut(event) {
   if (key === "f1") {
     event.preventDefault();
     showShortcutHelp();
+    return;
+  }
+
+  if (!typing && !event.altKey && !primaryKey && (key === "arrowup" || key === "arrowdown")) {
+    event.preventDefault();
+    moveBetweenPageSections(key === "arrowup" ? -1 : 1);
     return;
   }
 
