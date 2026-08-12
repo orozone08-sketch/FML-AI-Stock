@@ -4461,6 +4461,79 @@ html[data-theme="dark"] .action-menu-list {
   border-radius: 999px;
 }
 
+/* Keep report actions visible without requiring horizontal scrolling. */
+.report-data-table.has-row-actions th:last-child,
+.report-data-table.has-row-actions td:last-child {
+  position: sticky;
+  right: 0;
+  z-index: 3;
+  min-width: 156px;
+  background: var(--card);
+  box-shadow: -10px 0 18px rgba(17, 24, 39, 0.08);
+}
+
+.report-data-table.has-row-actions th:last-child {
+  z-index: 5;
+  background: var(--surface-muted);
+}
+
+.report-data-table.has-row-actions tbody tr:nth-child(even) td:last-child {
+  background: var(--surface-muted);
+}
+
+.report-data-table.has-row-actions tbody tr:hover td:last-child {
+  background: #EEF9F6;
+}
+
+.floating-shortcut-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 40px;
+  padding: 9px 13px;
+  border: 1px solid rgba(208, 213, 221, 0.95);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--text);
+  box-shadow: 0 12px 28px rgba(15, 37, 68, 0.16);
+  cursor: pointer;
+  pointer-events: auto;
+  font-size: 0.78rem;
+  font-weight: 850;
+  transition: transform 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.floating-shortcut-button:hover {
+  border-color: var(--primary-gold);
+  color: var(--primary-gold);
+  transform: translateY(-1px);
+}
+
+html[data-theme="dark"] .report-data-table.has-row-actions th:last-child {
+  background: #111827;
+}
+
+html[data-theme="dark"] .report-data-table.has-row-actions td:last-child,
+html[data-theme="dark"] .report-data-table.has-row-actions tbody tr:nth-child(even) td:last-child {
+  background: #0B1220;
+}
+
+html[data-theme="dark"] .report-data-table.has-row-actions tbody tr:hover td:last-child {
+  background: #102A2A;
+}
+
+@media (max-width: 760px) {
+  .floating-shortcut-button span:last-child {
+    display: none;
+  }
+
+  .floating-shortcut-button {
+    width: 40px;
+    justify-content: center;
+    padding: 9px;
+  }
+}
+
 .floating-tool-button.icon-only {
   width: 42px;
   height: 42px;
