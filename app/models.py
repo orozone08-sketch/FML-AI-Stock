@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from flask_login import UserMixin
-from sqlalchemy import event
+from sqlalchemy import event, inspect as sqlalchemy_inspect
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from app.extensions import db, login_manager
@@ -149,7 +149,9 @@ def normalize_customer_name(value):
 @event.listens_for(Customer, "before_insert")
 @event.listens_for(Customer, "before_update")
 def set_customer_name_key(_mapper, _connection, customer):
-    customer.name_key = normalize_customer_name(customer.name)
+    state = sqlalchemy_inspect(customer)
+    if state.attrs.name.history.has_changes() or not customer.name_key:
+        customer.name_key = normalize_customer_name(customer.name)
 
 
 class PaymentMode(TimestampMixin, db.Model):
