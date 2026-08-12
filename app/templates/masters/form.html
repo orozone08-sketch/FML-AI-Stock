@@ -5,6 +5,9 @@
   <section class="panel narrow">
     <form method="post" class="form-grid">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      {% if kind == 'customers' and record.id %}
+        <input type="hidden" name="edit_version" value="{{ record.edit_version }}">
+      {% endif %}
       {% if kind == 'stock-books' %}
         <label>Company
           <select name="company_id" required>

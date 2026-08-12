@@ -276,11 +276,31 @@ def edit_record(kind, record_id):
         return redirect(url_for("masters.list_records", kind=kind))
     if request.method == "POST":
         try:
+            if kind == "customers":
+                posted_version = request.form.get("edit_version", type=int)
+                if posted_version is None:
+                    raise ValueError("This customer form is outdated. Reload the customer and try again.")
+                # Lock the row before comparing the version. This makes two
+                # simultaneous saves serialize at the database level.
+                record = (
+                    db.session.query(Customer)
+                    .filter(Customer.id == record_id)
+                    .with_for_update()
+                    .one_or_none()
+                )
+                if not record:
+                    raise ValueError("Customer no longer exists.")
+                if posted_version != record.edit_version:
+                    raise ValueError(
+                        "This customer was updated by another user. Your changes were not saved; reload the latest record first."
+                    )
             before = snapshot(record)
             apply_form(record, kind)
             ensure_unique_code(record, kind)
             ensure_unique_customer_name(record, kind)
             record.updated_by_id = current_user.id
+            if kind == "customers":
+                record.edit_version += 1
             audit("edit", config["title"], record.id, getattr(record, "code", None), before=before, after=snapshot(record), user=current_user)
             db.session.commit()
             flash(f"{config['title'][:-1]} updated.", "success")
@@ -464,6 +484,8 @@ def customer_export_rows(profile, date_from, date_to):
 
 def friendly_integrity_error(kind, exc):
     message = str(getattr(exc, "orig", exc))
+    if kind == "customers" and ("name_key" in message or "uq_customer_name_key" in message):
+        return "A customer with this name already exists. Open the existing customer instead of creating a duplicate."
     if "Duplicate entry" in message or "UNIQUE constraint failed" in message:
         code = (request.form.get("code") or "").strip()
         detail = f" code '{code}'" if code else ""

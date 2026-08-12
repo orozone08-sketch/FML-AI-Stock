@@ -2,6 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from flask_login import UserMixin
+from sqlalchemy import event
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from app.extensions import db, login_manager
@@ -121,6 +122,10 @@ class Customer(TimestampMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     code = db.Column(db.String(50), nullable=False, unique=True, index=True)
     name = db.Column(db.String(220), nullable=False)
+    # The normalized key provides a database-backed guard against two users
+    # creating the same customer with different casing or whitespace.
+    name_key = db.Column(db.String(255), nullable=False)
+    edit_version = db.Column(db.Integer, nullable=False, default=1)
     contact_person = db.Column(db.String(160), nullable=True)
     customer_type = db.Column(db.String(30), nullable=False, default="CASH_AND_BILL")
     gst_number = db.Column(db.String(40), nullable=True)
@@ -133,6 +138,18 @@ class Customer(TimestampMixin, db.Model):
     default_credit_days = db.Column(db.Integer, nullable=False, default=30)
     active = db.Column(db.Boolean, nullable=False, default=True)
     notes = db.Column(db.Text, nullable=True)
+
+    __table_args__ = (db.UniqueConstraint("name_key", name="uq_customer_name_key"),)
+
+
+def normalize_customer_name(value):
+    return " ".join(str(value or "").strip().casefold().split())
+
+
+@event.listens_for(Customer, "before_insert")
+@event.listens_for(Customer, "before_update")
+def set_customer_name_key(_mapper, _connection, customer):
+    customer.name_key = normalize_customer_name(customer.name)
 
 
 class PaymentMode(TimestampMixin, db.Model):
