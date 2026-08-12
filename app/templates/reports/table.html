@@ -25,22 +25,13 @@
     {% endif %}
     <div class="table-wrap tall">
       <table id="report_table" class="report-data-table{% if row_actions and row_actions|select|list %} has-row-actions{% endif %}" data-selectable-rows data-row-select-key="report-{{ request.view_args.name }}">
-        <thead><tr>{% for header in headers %}<th>{{ header }}</th>{% endfor %}{% if row_actions and row_actions|select|list %}<th>Actions</th>{% endif %}</tr></thead>
+        <thead><tr>{% if row_actions and row_actions|select|list %}<th>Actions</th>{% endif %}{% for header in headers %}<th>{{ header }}</th>{% endfor %}</tr></thead>
         <tbody>
           {% for row in rows %}
             {% set row_index = loop.index0 %}
             <tr data-row-key="{{ request.view_args.name }}-{{ loop.index }}">
-              {% for cell in row %}
-                <td>
-                  {% if loop.index0 == 0 and month_detail_urls %}
-                    <a class="customer-link" href="{{ month_detail_urls[row_index] }}">{{ cell }}</a>
-                  {% else %}
-                    {{ cell }}
-                  {% endif %}
-                </td>
-              {% endfor %}
               {% if row_actions and row_actions|select|list %}
-                <td class="actions">
+                <td class="actions report-row-actions">
                   {% for action in row_actions[loop.index0] %}
                     {% if action.method|default('get') == 'post' %}
                       <form method="post" action="{{ action.url }}" data-confirm="{{ action.confirm }}">
@@ -53,6 +44,15 @@
                   {% endfor %}
                 </td>
               {% endif %}
+              {% for cell in row %}
+                <td>
+                  {% if loop.index0 == 0 and month_detail_urls %}
+                    <a class="customer-link" href="{{ month_detail_urls[row_index] }}">{{ cell }}</a>
+                  {% else %}
+                    {{ cell }}
+                  {% endif %}
+                </td>
+              {% endfor %}
             </tr>
           {% else %}
             <tr><td colspan="{{ headers|length + (1 if row_actions and row_actions|select|list else 0) }}" class="empty">No rows for this report.</td></tr>
