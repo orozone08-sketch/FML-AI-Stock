@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block page_title %}Stock List{% endblock %}
+{% block page_subtitle %}Complete received, sold, and pending stock totals by item.{% endblock %}
+{% block content %}
+  <section class="panel">
+    <form class="toolbar" method="get" data-live-search-form>
+      <a class="secondary-button" href="{{ url_for('reports.show', name='current-stock') }}">Stock report</a>
+      <select name="company_id" {% if active_company %}disabled{% endif %}>
+        {% if not active_company %}<option value="">All companies</option>{% endif %}
+        {% for company in companies %}
+          <option value="{{ company.id }}" {% if selected_company_id == company.id %}selected{% endif %}>{{ company.code }} - {{ company.name }}</option>
+        {% endfor %}
+      </select>
+      {% if active_company %}<input type="hidden" name="company_id" value="{{ active_company.id }}">{% endif %}
+      <select name="stock_book_id">
+        <option value="">All stock books</option>
+        {% for stock_book in stock_books %}
+          <option value="{{ stock_book.id }}" {% if selected_stock_book_id == stock_book.id %}selected{% endif %}>{{ stock_book.code }} - {{ stock_book.name }}</option>
+        {% endfor %}
+      </select>
+      <input name="q" placeholder="Search item code or name" value="{{ request.args.get('q', '') }}" autocomplete="off" data-live-search data-live-target="#stock_list_table">
+      <button class="secondary-button" type="submit" data-live-find>Find</button>
+    </form>
+  </section>
+
+  {% if selected_item %}
+    <section class="panel">
+      <div class="panel-title">
+        <div>
+          <h2>{{ selected_item.display_name }} — Stock Details</h2>
+          <span class="muted-copy">Received minus all stock-out movements equals pending/available stock.</span>
+        </div>
+        <a class="secondary-button" href="{{ url_for('reports.stock_list', company_id=selected_company_id, stock_book_id=selected_stock_book_id) }}">Clear selection</a>
+      </div>
+      <div class="metric-grid">
+        <article class="metric-card"><span>Total Received</span><strong>{{ fmt_qty(selected_summary.received) }}</strong><small>Opening, purchase, and transfer-in quantities</small></article>
+        <article class="metric-card amber"><span>Total Sold</span><strong>{{ fmt_qty(selected_summary.sold) }}</strong><small>Sale quantities issued to customers</small></article>
+        <article class="metric-card danger"><span>Pending / Available</span><strong>{{ fmt_qty(selected_summary.pending) }}</strong><small>Current stock remaining</small></article>
+        <article class="metric-card"><span>FIFO Value</span><strong>{{ fmt_money(selected_summary.fifo_value) }}</strong><small>Value of pending stock</small></article>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Company</th><th>Stock book</th><th>Received</th><th>Sold</th><th>Pending / Available</th><th>FIFO value</th><th>Status</th></tr></thead>
+          <tbody>
+            {% for row in selected_book_rows %}
+              <tr><td>{{ row.company.code }}</td><td>{{ row.stock_book.name }}</td><td>{{ fmt_qty(row.received) }}</td><td>{{ fmt_qty(row.sold) }}</td><td>{{ fmt_qty(row.pending) }}</td><td>{{ fmt_money(row.fifo_value) }}</td><td>{{ row.status }}</td></tr>
+            {% else %}
+              <tr><td colspan="7" class="empty">No stock movement found for this item.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  {% else %}
+    <section class="panel"><p class="muted-copy">Click an item below to view its total received, sold, pending, and FIFO stock value.</p></section>
+  {% endif %}
+
+  <section class="panel">
+    <div class="panel-title">
+      <h2>Full Stock List</h2>
+      <span class="muted-copy">{{ rows|length }} item/company balances</span>
+    </div>
+    <div class="table-wrap tall">
+      <table id="stock_list_table">
+        <thead><tr><th>Item</th><th>Code</th><th>Company</th><th>Stock books</th><th>Total received</th><th>Total sold</th><th>Pending / available</th><th>FIFO value</th><th>Status</th></tr></thead>
+        <tbody>
+          {% for row in rows %}
+            <tr>
+              <td><a class="customer-link" href="{{ url_for('reports.stock_list', item_id=row.item_id, company_id=row.company_id, stock_book_id=selected_stock_book_id) }}">{{ row.item.display_name }}</a></td>
+              <td>{{ row.item.code }}</td>
+              <td>{{ row.company.code }}</td>
+              <td>{{ row.book_count }}</td>
+              <td>{{ fmt_qty(row.received) }}</td>
+              <td>{{ fmt_qty(row.sold) }}</td>
+              <td>{{ fmt_qty(row.pending) }}</td>
+              <td>{{ fmt_money(row.fifo_value) }}</td>
+              <td>{{ row.status }}</td>
+            </tr>
+          {% else %}
+            <tr><td colspan="9" class="empty">No stock items found.</td></tr>
+          {% endfor %}
+          <tr class="empty live-empty" data-live-empty hidden><td colspan="9">No matching stock items.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+{% endblock %}

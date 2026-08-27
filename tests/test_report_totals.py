@@ -1,6 +1,9 @@
+from datetime import date
+
 from app.extensions import db
 from app.models import Customer, Payment, Receivable, StockLedgerEntry
 from app.services.payments import create_customer_receipt
+from app.services.stock import stock_ledger
 from app.services.transactions import create_opening_receivable, create_purchase, create_sale
 from tests.test_fifo_workflows import admin, ids
 from tests.test_navigation import login
@@ -30,6 +33,26 @@ def test_sales_report_displays_money_totals(client, app):
     assert b"Shown rows total" in response.data
     assert b"Grand total" in response.data
     assert "₹118.00".encode() in response.data
+
+
+def test_stock_list_shows_received_sold_and_pending_totals(client, app):
+    with app.app_context():
+        data = ids()
+        item_id = data["item"].id
+        stock_ledger(data["ai"].id, data["ai_gst"].id, item_id, date(2026, 6, 1), "IN", "OPENING_STOCK", 1, "STOCK-LIST-OPEN", "10", "20", user_id=admin().id)
+        stock_ledger(data["ai"].id, data["ai_gst"].id, item_id, date(2026, 6, 2), "OUT", "SALE", 2, "STOCK-LIST-SALE", "3", "20", user_id=admin().id)
+        db.session.commit()
+
+    login(client)
+    response = client.get(f"/reports/stock-list?item_id={item_id}")
+
+    assert response.status_code == 200
+    assert b"Total Received" in response.data
+    assert b"Total Sold" in response.data
+    assert b"Pending / Available" in response.data
+    assert b">10<" in response.data
+    assert b">3<" in response.data
+    assert b">7<" in response.data
 
 
 def test_monthly_sales_and_purchase_reports(client, app):

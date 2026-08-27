@@ -5,7 +5,7 @@ from flask import Blueprint, abort, flash, redirect, render_template, request, u
 from flask_login import current_user, login_required
 
 from app.core.company_context import active_company
-from app.core.formatting import fmt_money, fmt_qty, money
+from app.core.formatting import fmt_money, fmt_qty, money, qty
 from app.core.security import can, require_permission
 from app.extensions import db
 from app.models import (
@@ -42,6 +42,7 @@ bp = Blueprint("reports", __name__, url_prefix="/reports")
 
 REPORT_TITLES = {
     "current-stock": "Current Stock Report",
+    "stock-list": "Stock List",
     "fifo-valuation": "FIFO Valuation Report",
     "fifo-layers": "FIFO Layer Detail",
     "stock-ledger": "Stock Ledger",
@@ -401,6 +402,163 @@ def show(name):
         month_detail_urls=monthly_detail_urls(name, rows),
         reports=REPORT_TITLES,
         totals=report_totals(headers, rows),
+    )
+
+
+def stock_list_data(selected_company_id=None, selected_stock_book_id=None, selected_item_id=None):
+    """Return item-level stock totals and optional stock-book detail.
+
+    Received is every inward ledger movement. Sold is quantity-out from SALE
+    movements. Pending/available is the net ledger balance, so opening stock,
+    purchases, transfers, and all stock-out movements reconcile correctly.
+    """
+    books_query = StockBook.query.filter_by(active=True)
+    if active_company():
+        books_query = books_query.filter(StockBook.company_id == active_company().id)
+    if selected_company_id:
+        books_query = books_query.filter(StockBook.company_id == selected_company_id)
+    if selected_stock_book_id:
+        books_query = books_query.filter(StockBook.id == selected_stock_book_id)
+    books = books_query.order_by(StockBook.code).all()
+    items = Item.query.order_by(Item.code).all()
+
+    by_book_item = {
+        (book.company_id, book.id, item.id): {
+            "company_id": book.company_id,
+            "stock_book_id": book.id,
+            "item_id": item.id,
+            "received": Decimal("0.000"),
+            "sold": Decimal("0.000"),
+            "pending": Decimal("0.000"),
+        }
+        for book in books
+        for item in items
+    }
+    entry_query = StockLedgerEntry.query
+    if selected_company_id:
+        entry_query = entry_query.filter(StockLedgerEntry.company_id == selected_company_id)
+    if selected_stock_book_id:
+        entry_query = entry_query.filter(StockLedgerEntry.stock_book_id == selected_stock_book_id)
+    for entry in entry_query.order_by(StockLedgerEntry.entry_date, StockLedgerEntry.id).all():
+        key = (entry.company_id, entry.stock_book_id, entry.item_id)
+        aggregate = by_book_item.get(key)
+        if not aggregate:
+            continue
+        inward = qty(entry.quantity_in)
+        outward = qty(entry.quantity_out)
+        aggregate["received"] += inward
+        aggregate["pending"] += inward - outward
+        if entry.transaction_type == "SALE":
+            aggregate["sold"] += outward
+
+    book_lookup = {(book.company_id, book.id): book for book in books}
+    item_lookup = {item.id: item for item in items}
+    by_item = {}
+    for key, aggregate in by_book_item.items():
+        company_id, stock_book_id, item_id = key
+        item = item_lookup[item_id]
+        row = by_item.setdefault(
+            (company_id, item_id),
+            {
+                "company_id": company_id,
+                "item_id": item_id,
+                "item": item,
+                "received": Decimal("0.000"),
+                "sold": Decimal("0.000"),
+                "pending": Decimal("0.000"),
+                "fifo_value": Decimal("0.00"),
+                "book_count": 0,
+            },
+        )
+        row["received"] += aggregate["received"]
+        row["sold"] += aggregate["sold"]
+        row["pending"] += aggregate["pending"]
+        row["fifo_value"] += available_value(company_id, stock_book_id, item_id)
+        row["book_count"] += 1
+
+    def status_for(row):
+        if row["pending"] < Decimal("0.000"):
+            return "NEGATIVE"
+        if row["pending"] == Decimal("0.000"):
+            return "OUT"
+        if row["pending"] <= qty(row["item"].minimum_stock):
+            return "LOW"
+        return "NORMAL"
+
+    rows = []
+    for row in sorted(by_item.values(), key=lambda value: (value["item"].code, value["company_id"])):
+        row["company"] = db.session.get(Company, row["company_id"])
+        row["status"] = status_for(row)
+        rows.append(row)
+
+    selected_summary = {
+        "received": Decimal("0.000"),
+        "sold": Decimal("0.000"),
+        "pending": Decimal("0.000"),
+        "fifo_value": Decimal("0.00"),
+    }
+    selected_book_rows = []
+    if selected_item_id:
+        selected_rows = [row for row in rows if row["item_id"] == selected_item_id]
+        for row in selected_rows:
+            for field in selected_summary:
+                selected_summary[field] += row[field]
+        for key, aggregate in by_book_item.items():
+            company_id, stock_book_id, item_id = key
+            if item_id != selected_item_id:
+                continue
+            book = book_lookup.get((company_id, stock_book_id))
+            if not book:
+                continue
+            detail = dict(aggregate)
+            detail["company"] = db.session.get(Company, company_id)
+            detail["stock_book"] = book
+            detail["fifo_value"] = available_value(company_id, stock_book_id, item_id)
+            detail["status"] = status_for({**detail, "item": item_lookup[item_id]})
+            selected_book_rows.append(detail)
+        selected_book_rows.sort(key=lambda row: (row["company"].code, row["stock_book"].code))
+
+    return rows, selected_summary, selected_book_rows
+
+
+@bp.route("/stock-list")
+@login_required
+@require_permission("reports", "view")
+def stock_list():
+    selected_company_id = selected_report_company_id()
+    selected_stock_book_id = int_arg("stock_book_id")
+    selected_item_id = int_arg("item_id")
+    companies_query = Company.query.filter_by(active=True)
+    if active_company():
+        companies_query = companies_query.filter(Company.id == active_company().id)
+    companies = companies_query.order_by(Company.code).all()
+    stock_books_query = StockBook.query.filter_by(active=True)
+    if selected_company_id:
+        stock_books_query = stock_books_query.filter(StockBook.company_id == selected_company_id)
+    stock_books = stock_books_query.order_by(StockBook.code).all()
+    valid_book_ids = {book.id for book in stock_books}
+    if selected_stock_book_id and selected_stock_book_id not in valid_book_ids:
+        selected_stock_book_id = None
+    items = Item.query.order_by(Item.code).all()
+    valid_item_ids = {item.id for item in items}
+    if selected_item_id not in valid_item_ids:
+        selected_item_id = None
+    rows, selected_summary, selected_book_rows = stock_list_data(
+        selected_company_id, selected_stock_book_id, selected_item_id
+    )
+    selected_item = db.session.get(Item, selected_item_id) if selected_item_id else None
+    return render_template(
+        "reports/stock_list.html",
+        rows=rows,
+        companies=companies,
+        stock_books=stock_books,
+        items=items,
+        selected_company_id=selected_company_id,
+        selected_stock_book_id=selected_stock_book_id,
+        selected_item_id=selected_item_id,
+        selected_item=selected_item,
+        selected_summary=selected_summary,
+        selected_book_rows=selected_book_rows,
     )
 
 
