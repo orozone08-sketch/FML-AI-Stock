@@ -55,6 +55,76 @@ def test_stock_list_shows_received_sold_and_pending_totals(client, app):
     assert b">7<" in response.data
 
 
+def test_stock_list_month_filter_shows_month_movements_and_closing_balance(client, app):
+    with app.app_context():
+        data = ids()
+        item_id = data["item"].id
+        stock_ledger(
+            data["ai"].id,
+            data["ai_gst"].id,
+            item_id,
+            date(2026, 5, 31),
+            "IN",
+            "OPENING_STOCK",
+            3,
+            "MONTH-STOCK-OPEN",
+            "10",
+            "20",
+            user_id=admin().id,
+        )
+        stock_ledger(
+            data["ai"].id,
+            data["ai_gst"].id,
+            item_id,
+            date(2026, 6, 10),
+            "IN",
+            "PURCHASE",
+            4,
+            "MONTH-STOCK-IN",
+            "5",
+            "25",
+            user_id=admin().id,
+        )
+        stock_ledger(
+            data["ai"].id,
+            data["ai_gst"].id,
+            item_id,
+            date(2026, 6, 12),
+            "OUT",
+            "SALE",
+            5,
+            "MONTH-STOCK-SALE",
+            "3",
+            "20",
+            user_id=admin().id,
+        )
+        stock_ledger(
+            data["ai"].id,
+            data["ai_gst"].id,
+            item_id,
+            date(2026, 7, 1),
+            "OUT",
+            "SALE",
+            6,
+            "MONTH-STOCK-AFTER",
+            "4",
+            "20",
+            user_id=admin().id,
+        )
+        db.session.commit()
+
+    login(client)
+    response = client.get(f"/reports/stock-list?item_id={item_id}&month=2026-06")
+
+    assert response.status_code == 200
+    assert b"Received in 2026-06" in response.data
+    assert b"Sold in 2026-06" in response.data
+    assert b"Closing Stock" in response.data
+    assert b"<strong>5</strong>" in response.data
+    assert b"<strong>3</strong>" in response.data
+    assert b"<strong>12</strong>" in response.data
+
+
 def test_monthly_sales_and_purchase_reports(client, app):
     with app.app_context():
         data = ids()

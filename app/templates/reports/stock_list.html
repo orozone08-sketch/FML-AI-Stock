@@ -18,6 +18,7 @@
           <option value="{{ stock_book.id }}" {% if selected_stock_book_id == stock_book.id %}selected{% endif %}>{{ stock_book.code }} - {{ stock_book.name }}</option>
         {% endfor %}
       </select>
+      <input name="month" type="month" value="{{ selected_month }}" aria-label="Stock month">
       <input name="q" placeholder="Search item code or name" value="{{ request.args.get('q', '') }}" autocomplete="off" data-live-search data-live-target="#stock_list_table">
       <button class="secondary-button" type="submit" data-live-find>Find</button>
     </form>
@@ -28,19 +29,19 @@
       <div class="panel-title">
         <div>
           <h2>{{ selected_item.display_name }} — Stock Details</h2>
-          <span class="muted-copy">Received minus all stock-out movements equals pending/available stock.</span>
+          <span class="muted-copy">{% if selected_month %}Movement totals for {{ selected_month }}; pending is closing stock at month end.{% else %}All-time movement totals; pending is current available stock.{% endif %}</span>
         </div>
-        <a class="secondary-button" href="{{ url_for('reports.stock_list', company_id=selected_company_id, stock_book_id=selected_stock_book_id) }}">Clear selection</a>
+        <a class="secondary-button" href="{{ url_for('reports.stock_list', company_id=selected_company_id, stock_book_id=selected_stock_book_id, month=selected_month) }}">Clear selection</a>
       </div>
       <div class="metric-grid">
-        <article class="metric-card"><span>Total Received</span><strong>{{ fmt_qty(selected_summary.received) }}</strong><small>Opening, purchase, and transfer-in quantities</small></article>
-        <article class="metric-card amber"><span>Total Sold</span><strong>{{ fmt_qty(selected_summary.sold) }}</strong><small>Sale quantities issued to customers</small></article>
-        <article class="metric-card danger"><span>Pending / Available</span><strong>{{ fmt_qty(selected_summary.pending) }}</strong><small>Current stock remaining</small></article>
-        <article class="metric-card"><span>FIFO Value</span><strong>{{ fmt_money(selected_summary.fifo_value) }}</strong><small>Value of pending stock</small></article>
+        <article class="metric-card"><span>{{ 'Received in ' ~ selected_month if selected_month else 'Total Received' }}</span><strong>{{ fmt_qty(selected_summary.received) }}</strong><small>Opening, purchase, and transfer-in quantities</small></article>
+        <article class="metric-card amber"><span>{{ 'Sold in ' ~ selected_month if selected_month else 'Total Sold' }}</span><strong>{{ fmt_qty(selected_summary.sold) }}</strong><small>Sale quantities issued to customers</small></article>
+        <article class="metric-card danger"><span>{{ 'Closing Stock' if selected_month else 'Pending / Available' }}</span><strong>{{ fmt_qty(selected_summary.pending) }}</strong><small>{{ 'Balance at month end' if selected_month else 'Current stock remaining' }}</small></article>
+        <article class="metric-card"><span>FIFO Value</span><strong>{{ fmt_money(selected_summary.fifo_value) }}</strong><small>{{ 'Value at month end' if selected_month else 'Value of pending stock' }}</small></article>
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Company</th><th>Stock book</th><th>Received</th><th>Sold</th><th>Pending / Available</th><th>FIFO value</th><th>Status</th></tr></thead>
+          <thead><tr><th>Company</th><th>Stock book</th><th>Received</th><th>Sold</th><th>{{ 'Closing stock' if selected_month else 'Pending / Available' }}</th><th>FIFO value</th><th>Status</th></tr></thead>
           <tbody>
             {% for row in selected_book_rows %}
               <tr><td>{{ row.company.code }}</td><td>{{ row.stock_book.name }}</td><td>{{ fmt_qty(row.received) }}</td><td>{{ fmt_qty(row.sold) }}</td><td>{{ fmt_qty(row.pending) }}</td><td>{{ fmt_money(row.fifo_value) }}</td><td>{{ row.status }}</td></tr>
@@ -52,21 +53,21 @@
       </div>
     </section>
   {% else %}
-    <section class="panel"><p class="muted-copy">Click an item below to view its total received, sold, pending, and FIFO stock value.</p></section>
+    <section class="panel"><p class="muted-copy">Click an item below to view its received, sold, and {{ 'month-end closing' if selected_month else 'pending' }} stock totals.</p></section>
   {% endif %}
 
   <section class="panel">
     <div class="panel-title">
       <h2>Full Stock List</h2>
-      <span class="muted-copy">{{ rows|length }} item/company balances</span>
+      <span class="muted-copy">{{ rows|length }} item/company balances{% if selected_month %} for {{ selected_month }}{% endif %}</span>
     </div>
     <div class="table-wrap tall">
       <table id="stock_list_table">
-        <thead><tr><th>Item</th><th>Code</th><th>Company</th><th>Stock books</th><th>Total received</th><th>Total sold</th><th>Pending / available</th><th>FIFO value</th><th>Status</th></tr></thead>
+        <thead><tr><th>Item</th><th>Code</th><th>Company</th><th>Stock books</th><th>{{ 'Received in ' ~ selected_month if selected_month else 'Total received' }}</th><th>{{ 'Sold in ' ~ selected_month if selected_month else 'Total sold' }}</th><th>{{ 'Closing stock' if selected_month else 'Pending / available' }}</th><th>FIFO value</th><th>Status</th></tr></thead>
         <tbody>
           {% for row in rows %}
             <tr>
-              <td><a class="customer-link" href="{{ url_for('reports.stock_list', item_id=row.item_id, company_id=row.company_id, stock_book_id=selected_stock_book_id) }}">{{ row.item.display_name }}</a></td>
+              <td><a class="customer-link" href="{{ url_for('reports.stock_list', item_id=row.item_id, company_id=row.company_id, stock_book_id=selected_stock_book_id, month=selected_month) }}">{{ row.item.display_name }}</a></td>
               <td>{{ row.item.code }}</td>
               <td>{{ row.company.code }}</td>
               <td>{{ row.book_count }}</td>

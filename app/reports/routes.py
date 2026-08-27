@@ -405,12 +405,19 @@ def show(name):
     )
 
 
-def stock_list_data(selected_company_id=None, selected_stock_book_id=None, selected_item_id=None):
+def stock_list_data(
+    selected_company_id=None,
+    selected_stock_book_id=None,
+    selected_item_id=None,
+    period_start=None,
+    period_end=None,
+):
     """Return item-level stock totals and optional stock-book detail.
 
-    Received is every inward ledger movement. Sold is quantity-out from SALE
-    movements. Pending/available is the net ledger balance, so opening stock,
-    purchases, transfers, and all stock-out movements reconcile correctly.
+    Received and sold are movements during the selected period. Pending and
+    available are the closing ledger balance at the end of that period, so
+    opening stock, purchases, transfers, and all stock-out movements reconcile
+    correctly.
     """
     books_query = StockBook.query.filter_by(active=True)
     if active_company():
@@ -430,6 +437,7 @@ def stock_list_data(selected_company_id=None, selected_stock_book_id=None, selec
             "received": Decimal("0.000"),
             "sold": Decimal("0.000"),
             "pending": Decimal("0.000"),
+            "fifo_value": Decimal("0.00"),
         }
         for book in books
         for item in items
@@ -444,12 +452,16 @@ def stock_list_data(selected_company_id=None, selected_stock_book_id=None, selec
         aggregate = by_book_item.get(key)
         if not aggregate:
             continue
+        if period_end and entry.entry_date >= period_end:
+            continue
         inward = qty(entry.quantity_in)
         outward = qty(entry.quantity_out)
-        aggregate["received"] += inward
         aggregate["pending"] += inward - outward
-        if entry.transaction_type == "SALE":
-            aggregate["sold"] += outward
+        aggregate["fifo_value"] += money(entry.value if entry.movement_type == "IN" else -entry.value)
+        if not period_start or entry.entry_date >= period_start:
+            aggregate["received"] += inward
+            if entry.transaction_type == "SALE":
+                aggregate["sold"] += outward
 
     book_lookup = {(book.company_id, book.id): book for book in books}
     item_lookup = {item.id: item for item in items}
@@ -473,7 +485,7 @@ def stock_list_data(selected_company_id=None, selected_stock_book_id=None, selec
         row["received"] += aggregate["received"]
         row["sold"] += aggregate["sold"]
         row["pending"] += aggregate["pending"]
-        row["fifo_value"] += available_value(company_id, stock_book_id, item_id)
+        row["fifo_value"] += aggregate["fifo_value"]
         row["book_count"] += 1
 
     def status_for(row):
@@ -513,7 +525,6 @@ def stock_list_data(selected_company_id=None, selected_stock_book_id=None, selec
             detail = dict(aggregate)
             detail["company"] = db.session.get(Company, company_id)
             detail["stock_book"] = book
-            detail["fifo_value"] = available_value(company_id, stock_book_id, item_id)
             detail["status"] = status_for({**detail, "item": item_lookup[item_id]})
             selected_book_rows.append(detail)
         selected_book_rows.sort(key=lambda row: (row["company"].code, row["stock_book"].code))
@@ -528,6 +539,8 @@ def stock_list():
     selected_company_id = selected_report_company_id()
     selected_stock_book_id = int_arg("stock_book_id")
     selected_item_id = int_arg("item_id")
+    period_start, period_end = month_bounds()
+    selected_month = request.args.get("month") if period_start else ""
     companies_query = Company.query.filter_by(active=True)
     if active_company():
         companies_query = companies_query.filter(Company.id == active_company().id)
@@ -544,8 +557,21 @@ def stock_list():
     if selected_item_id not in valid_item_ids:
         selected_item_id = None
     rows, selected_summary, selected_book_rows = stock_list_data(
-        selected_company_id, selected_stock_book_id, selected_item_id
+        selected_company_id,
+        selected_stock_book_id,
+        selected_item_id,
+        period_start,
+        period_end,
     )
+    search = (request.args.get("q") or "").strip().casefold()
+    if search:
+        rows = [
+            row
+            for row in rows
+            if search in row["item"].display_name.casefold()
+            or search in row["item"].code.casefold()
+            or search in row["company"].code.casefold()
+        ]
     selected_item = db.session.get(Item, selected_item_id) if selected_item_id else None
     return render_template(
         "reports/stock_list.html",
@@ -559,6 +585,7 @@ def stock_list():
         selected_item=selected_item,
         selected_summary=selected_summary,
         selected_book_rows=selected_book_rows,
+        selected_month=selected_month,
     )
 
 
