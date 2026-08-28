@@ -105,6 +105,8 @@ def parse_money_cell(value):
 def report_totals(headers, rows):
     totals = []
     for index, header in enumerate(headers):
+        if header.lower() in {"rate", "rate (ex gst)", "gst %", "margin %"}:
+            continue
         total = Decimal("0.00")
         has_money = False
         for row in rows:
@@ -612,10 +614,17 @@ def report_row_actions(name, rows):
             for purchase in purchase_report_query().order_by(Purchase.bill_date.desc(), Purchase.id.desc()).all()
         ]
     if name == "sales":
-        return [
-            source_document_actions("SALE", sale.id)
-            for sale in sale_report_query().order_by(Sale.invoice_date.desc(), Sale.id.desc()).all()
-        ]
+        actions = []
+        emitted_sales = set()
+        for line in sale_report_lines_query().order_by(
+            Sale.invoice_date.desc(), Sale.id.desc(), SaleLine.id.asc()
+        ).all():
+            if line.sale.id in emitted_sales:
+                actions.append([])
+                continue
+            emitted_sales.add(line.sale.id)
+            actions.append(source_document_actions("SALE", line.sale.id))
+        return actions
     if name in {"purchases-monthly", "sales-monthly"}:
         detail_name = "sales" if name == "sales-monthly" else "purchases"
         detail_urls = monthly_detail_urls(name, rows)
@@ -975,6 +984,23 @@ def sale_report_query():
     return query
 
 
+def sale_report_lines_query():
+    query = scope_query_to_active_company(
+        SaleLine.query.join(Sale).filter(Sale.is_void.is_(False)),
+        Sale.company_id,
+    )
+    selected_company_id = selected_report_company_id()
+    if selected_company_id:
+        query = query.filter(Sale.company_id == selected_company_id)
+    sale_type = (request.args.get("sale_type") or "").strip()
+    if sale_type:
+        query = query.filter(Sale.sale_type == sale_type)
+    start, end = month_bounds()
+    if start:
+        query = query.filter(Sale.invoice_date >= start, Sale.invoice_date < end)
+    return query
+
+
 def purchase_rows():
     headers = ["Date", "Company", "Book", "Supplier", "Bill", "Type", "Subtotal", "GST", "Grand total", "Paid", "Balance", "Status", "Created by"]
     rows = []
@@ -1040,9 +1066,37 @@ def purchase_monthly_rows():
 
 
 def sales_rows():
-    headers = ["Date", "Company", "Book", "Customer", "Invoice", "Type", "Subtotal", "GST", "Grand total", "FIFO cost", "Gross profit", "Balance", "Status", "Created by"]
+    headers = [
+        "Date",
+        "Company",
+        "Book",
+        "Customer",
+        "Invoice",
+        "Type",
+        "Product",
+        "Quantity",
+        "Rate (ex GST)",
+        "GST %",
+        "Line subtotal",
+        "GST amount",
+        "Line total",
+        "FIFO cost",
+        "Gross profit",
+        "Grand total",
+        "Paid",
+        "Balance",
+        "Status",
+        "Created by",
+    ]
     rows = []
-    for sale in sale_report_query().order_by(Sale.invoice_date.desc(), Sale.id.desc()).all():
+    emitted_totals = set()
+    lines = sale_report_lines_query().order_by(
+        Sale.invoice_date.desc(), Sale.id.desc(), SaleLine.id.asc()
+    ).all()
+    for line in lines:
+        sale = line.sale
+        show_invoice_totals = sale.id not in emitted_totals
+        emitted_totals.add(sale.id)
         rows.append([
             sale.invoice_date,
             sale.company.code,
@@ -1050,14 +1104,20 @@ def sales_rows():
             sale.customer.name,
             sale.invoice_number,
             sale.sale_type,
-            fmt_money(sale.subtotal),
-            fmt_money(sale.gst_total),
-            fmt_money(sale.grand_total),
-            fmt_money(sale.fifo_cost),
-            fmt_money(sale.gross_profit),
-            fmt_money(sale.balance_amount),
-            sale.payment_status,
-            creator_name(sale.created_by_id),
+            line.item.display_name,
+            fmt_qty(line.quantity),
+            fmt_money(line.sale_rate),
+            f"{fmt_qty(line.gst_percent)}%",
+            fmt_money(line.subtotal),
+            fmt_money(line.gst_amount),
+            fmt_money(line.line_total),
+            fmt_money(line.fifo_cost),
+            fmt_money(line.gross_profit),
+            fmt_money(sale.grand_total) if show_invoice_totals else "",
+            fmt_money(sale.paid_amount) if show_invoice_totals else "",
+            fmt_money(sale.balance_amount) if show_invoice_totals else "",
+            sale.payment_status if show_invoice_totals else "",
+            creator_name(sale.created_by_id) if show_invoice_totals else "",
         ])
     return headers, rows
 

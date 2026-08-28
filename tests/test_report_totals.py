@@ -12,6 +12,7 @@ from tests.test_navigation import login
 def test_sales_report_displays_money_totals(client, app):
     with app.app_context():
         data = ids()
+        item_display_name = data["item"].display_name
         create_sale(
             {
                 "company_id": data["ai"].id,
@@ -32,6 +33,8 @@ def test_sales_report_displays_money_totals(client, app):
     assert response.status_code == 200
     assert b"Shown rows total" in response.data
     assert b"Grand total" in response.data
+    assert b"Product" in response.data
+    assert item_display_name.encode() in response.data
     assert "₹118.00".encode() in response.data
 
 
