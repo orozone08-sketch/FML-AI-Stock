@@ -1,5 +1,6 @@
 import csv
 import re
+from decimal import Decimal, InvalidOperation
 from io import BytesIO, StringIO
 
 from flask import Response, send_file
@@ -26,7 +27,7 @@ def export_csv(filename, headers, rows):
     buffer = StringIO()
     writer = csv.writer(buffer)
     writer.writerow(headers)
-    writer.writerows(rows)
+    writer.writerows(_numeric_row(row) for row in rows)
     return Response(
         buffer.getvalue(),
         mimetype="text/csv",
@@ -40,7 +41,11 @@ def export_xlsx(filename, headers, rows):
     sheet.title = "Report"
     sheet.append(headers)
     for row in rows:
-        sheet.append(list(row))
+        sheet.append(_numeric_row(row))
+    for row in sheet.iter_rows(min_row=2):
+        for cell in row:
+            if isinstance(cell.value, Decimal):
+                cell.number_format = "#,##0.00;[Red]-#,##0.00"
     for column_cells in sheet.columns:
         length = max(len(str(cell.value or "")) for cell in column_cells)
         sheet.column_dimensions[column_cells[0].column_letter].width = min(
@@ -55,6 +60,21 @@ def export_xlsx(filename, headers, rows):
         as_attachment=True,
         download_name=f"{filename}.xlsx",
     )
+
+
+def _numeric_value(value):
+    """Convert formatted INR strings into spreadsheet-friendly numbers."""
+    if not isinstance(value, str) or "₹" not in value:
+        return value
+    cleaned = value.replace("₹", "").replace(",", "").strip()
+    try:
+        return Decimal(cleaned)
+    except InvalidOperation:
+        return value
+
+
+def _numeric_row(row):
+    return [_numeric_value(value) for value in row]
 
 
 def export_pdf(title, filename, headers, rows):
