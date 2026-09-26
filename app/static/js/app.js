@@ -1729,6 +1729,55 @@ document.querySelectorAll("form").forEach(updateDocumentTotal);
 initializeItemPickers();
 document.querySelectorAll("[data-live-search]").forEach(applyLiveSearch);
 initializeSelectableRows();
+initializeTableBottomScrollbars();
+
+function initializeTableBottomScrollbars(root = document) {
+  root.querySelectorAll("[data-table-scroll-shell]").forEach((shell) => {
+    const viewport = shell.querySelector("[data-table-scroll-viewport]");
+    const bottomScroll = shell.querySelector("[data-table-bottom-scroll]");
+    const spacer = bottomScroll?.firstElementChild;
+    if (!viewport || !bottomScroll || !spacer || bottomScroll.dataset.ready === "true") return;
+
+    bottomScroll.dataset.ready = "true";
+    let syncing = false;
+
+    const update = () => {
+      const table = viewport.querySelector("table");
+      const contentWidth = Math.max(viewport.scrollWidth, table?.scrollWidth || 0);
+      const hasHorizontalOverflow = contentWidth > viewport.clientWidth + 1;
+      spacer.style.width = `${contentWidth}px`;
+      bottomScroll.hidden = !hasHorizontalOverflow;
+      if (!hasHorizontalOverflow) {
+        viewport.scrollLeft = 0;
+        bottomScroll.scrollLeft = 0;
+      }
+    };
+
+    const syncViewportToBottom = () => {
+      if (syncing) return;
+      syncing = true;
+      viewport.scrollLeft = bottomScroll.scrollLeft;
+      syncing = false;
+    };
+
+    const syncBottomToViewport = () => {
+      if (syncing) return;
+      syncing = true;
+      bottomScroll.scrollLeft = viewport.scrollLeft;
+      syncing = false;
+    };
+
+    viewport.addEventListener("scroll", syncBottomToViewport, { passive: true });
+    bottomScroll.addEventListener("scroll", syncViewportToBottom, { passive: true });
+    window.addEventListener("resize", update, { passive: true });
+    if (typeof ResizeObserver !== "undefined") {
+      const observer = new ResizeObserver(update);
+      observer.observe(viewport);
+      if (viewport.querySelector("table")) observer.observe(viewport.querySelector("table"));
+    }
+    update();
+  });
+}
 
 function initializeSelectableRows(root = document) {
   const tables = Array.from(root.querySelectorAll(".table-wrap table, table[data-selectable-rows]"));

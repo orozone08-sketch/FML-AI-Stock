@@ -3287,6 +3287,56 @@ html[data-theme="dark"] .shortcut-modal {
   border-spacing: 0;
 }
 
+/* Keep a horizontal table control at the bottom of long outstanding sections. */
+.outstanding-table-scroll {
+  min-width: 0;
+}
+
+.outstanding-table-viewport {
+  overflow-x: hidden;
+}
+
+.table-bottom-scroll {
+  display: block;
+  height: 14px;
+  margin-top: 7px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-muted) 78%, transparent);
+  scrollbar-gutter: stable;
+}
+
+.table-bottom-scroll > div {
+  height: 1px;
+}
+
+.table-bottom-scroll::-webkit-scrollbar {
+  height: 10px;
+}
+
+.table-bottom-scroll::-webkit-scrollbar-track {
+  border-radius: 999px;
+  background: transparent;
+}
+
+.table-bottom-scroll::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 74%, var(--ink));
+  background-clip: padding-box;
+}
+
+.table-bottom-scroll:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+html[data-theme="dark"] .table-bottom-scroll {
+  background: color-mix(in srgb, #141414 84%, transparent);
+}
+
 th {
   position: sticky;
   top: 0;
