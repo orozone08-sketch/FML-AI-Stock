@@ -3301,6 +3301,11 @@ html[data-theme="dark"] .shortcut-modal {
   min-width: max-content;
 }
 
+.outstanding-wide-table table {
+  width: max-content !important;
+  min-width: 1800px !important;
+}
+
 .outstanding-table-viewport th,
 .outstanding-table-viewport td {
   white-space: nowrap;
