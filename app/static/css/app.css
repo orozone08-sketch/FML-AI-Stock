@@ -3298,14 +3298,18 @@ html[data-theme="dark"] .shortcut-modal {
 
 .table-bottom-scroll {
   display: block;
-  height: 14px;
-  margin-top: 7px;
+  min-height: 18px;
+  height: 18px;
+  margin-top: 8px;
   overflow-x: auto;
   overflow-y: hidden;
   border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
   border-radius: 999px;
   background: color-mix(in srgb, var(--surface-muted) 78%, transparent);
   scrollbar-gutter: stable;
+  scrollbar-color: var(--accent) transparent;
+  opacity: 1;
+  visibility: visible;
 }
 
 .table-bottom-scroll > div {
@@ -3313,7 +3317,7 @@ html[data-theme="dark"] .shortcut-modal {
 }
 
 .table-bottom-scroll::-webkit-scrollbar {
-  height: 10px;
+  height: 14px;
 }
 
 .table-bottom-scroll::-webkit-scrollbar-track {
@@ -3322,7 +3326,8 @@ html[data-theme="dark"] .shortcut-modal {
 }
 
 .table-bottom-scroll::-webkit-scrollbar-thumb {
-  border: 2px solid transparent;
+  min-width: 34px;
+  border: 3px solid transparent;
   border-radius: 999px;
   background: color-mix(in srgb, var(--accent) 74%, var(--ink));
   background-clip: padding-box;

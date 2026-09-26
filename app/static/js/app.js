@@ -1745,12 +1745,12 @@ function initializeTableBottomScrollbars(root = document) {
       const table = viewport.querySelector("table");
       const contentWidth = Math.max(viewport.scrollWidth, table?.scrollWidth || 0);
       const hasHorizontalOverflow = contentWidth > viewport.clientWidth + 1;
-      spacer.style.width = `${contentWidth}px`;
-      bottomScroll.hidden = !hasHorizontalOverflow;
-      if (!hasHorizontalOverflow) {
-        viewport.scrollLeft = 0;
-        bottomScroll.scrollLeft = 0;
-      }
+      // Keep the rail visible at the end of the section even when the current
+      // table fits. This makes the horizontal control discoverable and still
+      // gives it the exact width needed when the table overflows.
+      spacer.style.width = `${Math.max(contentWidth, viewport.clientWidth + (hasHorizontalOverflow ? 0 : 16))}px`;
+      bottomScroll.setAttribute("aria-disabled", String(!hasHorizontalOverflow));
+      if (!hasHorizontalOverflow) viewport.scrollLeft = 0;
     };
 
     const syncViewportToBottom = () => {
