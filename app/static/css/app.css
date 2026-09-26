@@ -3306,6 +3306,19 @@ html[data-theme="dark"] .shortcut-modal {
   min-width: 1800px !important;
 }
 
+.outstanding-wide-table th:first-child,
+.outstanding-wide-table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  background: var(--surface);
+  box-shadow: 2px 0 0 color-mix(in srgb, var(--border) 82%, transparent);
+}
+
+.outstanding-wide-table th:first-child {
+  z-index: 9;
+}
+
 .outstanding-table-viewport th,
 .outstanding-table-viewport td {
   white-space: nowrap;
