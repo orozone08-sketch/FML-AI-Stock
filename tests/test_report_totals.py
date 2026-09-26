@@ -629,6 +629,13 @@ def test_customer_outstanding_nets_unallocated_advance_against_balance(client, a
     assert "Includes ₹14,000.00 advance offset" in html
     assert "Bill balance ₹36,000.00 before advances" in html
 
+    customer_profile = client.get(
+        f"/masters/customers/{customer_id}?company_id={company_id}"
+    )
+    assert customer_profile.status_code == 200
+    assert "₹22,000.00" in customer_profile.get_data(as_text=True)
+    assert "After ₹14,000.00 advance offset" in customer_profile.get_data(as_text=True)
+
     report = client.get("/reports/customer-outstanding")
     report_html = report.get_data(as_text=True)
     assert report.status_code == 200

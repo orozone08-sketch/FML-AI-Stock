@@ -4,6 +4,7 @@ from decimal import Decimal
 from app.core.formatting import money, qty
 from app.extensions import db
 from app.models import Company, Customer, Payable, Payment, Purchase, Receivable, Sale, SaleLine, Supplier
+from app.services.outstanding import party_unallocated_advance
 
 
 def selected_company_ids_for_customer(customer_id):
@@ -276,7 +277,19 @@ def customer_profile(customer_id, company_id=None, date_from=None, date_to=None)
     companies = [companies_by_id[linked_id] for linked_id in sorted(company_ids) if linked_id in companies_by_id]
     total_sales = money(sum((invoice.grand_total for invoice in invoices), Decimal("0.00")))
     total_received = money(sum((payment.total_amount for payment in payments), Decimal("0.00")))
-    total_pending = money(sum((receivable.balance_amount for receivable in receivables), Decimal("0.00")))
+    document_pending = money(sum((receivable.balance_amount for receivable in receivables), Decimal("0.00")))
+    advance_company_ids = {int(company_id)} if company_id else {receivable.company_id for receivable in receivables}
+    unallocated_advance = money(
+        sum(
+            (
+                party_unallocated_advance(linked_company_id, "customer", customer_id)
+                for linked_company_id in advance_company_ids
+            ),
+            Decimal("0.00"),
+        )
+    )
+    advance_offset = money(min(document_pending, unallocated_advance))
+    total_pending = money(document_pending - advance_offset)
     last_transaction = max([invoice.invoice_date for invoice in invoices] + [rec.document_date for rec in receivables], default=None)
     last_payment = max((payment.payment_date for payment in payments), default=None)
     pending_stock = sum((row["quantity"] for row in stock_rows if row["status"] != "Completed"), Decimal("0.000"))
@@ -295,6 +308,8 @@ def customer_profile(customer_id, company_id=None, date_from=None, date_to=None)
             "total_sales": total_sales,
             "total_received": total_received,
             "total_pending": total_pending,
+            "document_pending": document_pending,
+            "advance_offset": advance_offset,
             "last_transaction": last_transaction,
             "last_payment": last_payment,
             "stock_given": qty(stock_given),

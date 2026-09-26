@@ -42,7 +42,7 @@
     <article class="metric-card danger">
       <span>Pending Payment</span>
       <strong>{{ fmt_money(profile.summary.total_pending) }}</strong>
-      <small>Outstanding balance</small>
+      <small>{% if profile.summary.advance_offset %}After {{ fmt_money(profile.summary.advance_offset) }} advance offset{% else %}Outstanding balance{% endif %}</small>
     </article>
     <article class="metric-card amber">
       <span>Pending Stock</span>
