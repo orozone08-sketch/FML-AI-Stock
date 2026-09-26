@@ -3293,44 +3293,54 @@ html[data-theme="dark"] .shortcut-modal {
 }
 
 .outstanding-table-viewport {
-  overflow-x: hidden;
+  overflow-x: auto;
 }
 
 .table-bottom-scroll {
   display: block;
-  min-height: 18px;
+  width: 100%;
   height: 18px;
   margin-top: 8px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--surface-muted) 78%, transparent);
-  scrollbar-gutter: stable;
-  scrollbar-color: var(--accent) transparent;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: ew-resize;
+  accent-color: var(--accent);
+  background: transparent;
   opacity: 1;
   visibility: visible;
 }
 
-.table-bottom-scroll > div {
-  height: 1px;
-}
-
-.table-bottom-scroll::-webkit-scrollbar {
-  height: 14px;
-}
-
-.table-bottom-scroll::-webkit-scrollbar-track {
+.table-bottom-scroll::-webkit-slider-runnable-track {
+  height: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
   border-radius: 999px;
-  background: transparent;
+  background: color-mix(in srgb, var(--surface-muted) 78%, transparent);
 }
 
-.table-bottom-scroll::-webkit-scrollbar-thumb {
-  min-width: 34px;
-  border: 3px solid transparent;
+.table-bottom-scroll::-webkit-slider-thumb {
+  width: 72px;
+  height: 16px;
+  margin-top: -4px;
+  border: 2px solid var(--surface);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--accent) 74%, var(--ink));
-  background-clip: padding-box;
+  background: var(--accent);
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.table-bottom-scroll::-moz-range-track {
+  height: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-muted) 78%, transparent);
+}
+
+.table-bottom-scroll::-moz-range-thumb {
+  width: 72px;
+  height: 16px;
+  border: 2px solid var(--surface);
+  border-radius: 999px;
+  background: var(--accent);
 }
 
 .table-bottom-scroll:focus-visible {
