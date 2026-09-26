@@ -3296,6 +3296,16 @@ html[data-theme="dark"] .shortcut-modal {
   overflow-x: auto;
 }
 
+.outstanding-table-viewport table {
+  width: max-content;
+  min-width: max-content;
+}
+
+.outstanding-table-viewport th,
+.outstanding-table-viewport td {
+  white-space: nowrap;
+}
+
 .table-bottom-scroll {
   display: block;
   width: 100%;

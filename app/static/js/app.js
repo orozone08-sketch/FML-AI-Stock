@@ -1742,7 +1742,8 @@ function initializeTableBottomScrollbars(root = document) {
 
     const update = () => {
       const table = viewport.querySelector("table");
-      const contentWidth = Math.max(viewport.scrollWidth, table?.scrollWidth || 0);
+      const renderedTableWidth = table?.getBoundingClientRect().width || table?.offsetWidth || 0;
+      const contentWidth = Math.max(viewport.scrollWidth, table?.scrollWidth || 0, renderedTableWidth);
       const hasHorizontalOverflow = contentWidth > viewport.clientWidth + 1;
       const maxScroll = Math.max(0, contentWidth - viewport.clientWidth);
       bottomScroll.max = String(maxScroll);
