@@ -50,7 +50,7 @@
       <thead><tr><th>Company</th><th>Customer</th><th>Documents</th><th>First date</th><th>Next due</th><th>Debit bills</th><th>Credit received</th><th>Advance credit</th><th>Closing balance</th><th>Status</th><th>Actions</th></tr></thead>
       <tbody>{% for row in receivables %}{% set advance_credit = row.advance_offset + row.open_advance %}<tr><td>{{ row.company }}</td><td>{% if row.party_id %}<a class="table-action" href="{{ url_for('payments.outstanding_customer_detail', company_id=row.company_id, customer_id=row.party_id) }}">{{ row.party }}</a>{% else %}{{ row.party }}{% endif %}</td><td>{{ row.documents_label }}</td><td>{{ row.date }}</td><td>{{ row.due_date or '' }}</td><td>{{ fmt_money(row.total) }}</td><td>{{ fmt_money(row.paid) }}</td><td>{{ fmt_money(advance_credit) }}</td><td>{{ fmt_money(row.balance) }}</td><td>{{ row.status }}</td><td>{% if row.party_id %}<a class="table-action" href="{{ url_for('payments.outstanding_customer_detail', company_id=row.company_id, customer_id=row.party_id) }}">Details</a>{% endif %}</td></tr>{% else %}<tr><td colspan="11" class="empty">No receivables.</td></tr>{% endfor %}</tbody>
       </table></div>
-      <input class="table-bottom-scroll" data-table-bottom-scroll type="range" min="0" max="0" step="1" value="0" aria-label="Scroll Customer Outstanding table horizontally">
+      <div class="table-bottom-scroll" data-table-bottom-scroll aria-label="Scroll Customer Outstanding table horizontally"><span class="table-bottom-scroll-thumb" data-table-scroll-thumb role="slider" tabindex="0" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" aria-label="Customer Outstanding horizontal scroll"></span></div>
     </div>
   </section>
 
@@ -61,7 +61,7 @@
       <thead><tr><th>Company</th><th>Supplier</th><th>Documents</th><th>First date</th><th>Next due</th><th>Debit bills</th><th>Credit paid</th><th>Advance</th><th>Closing balance</th><th>Status</th><th>Actions</th></tr></thead>
       <tbody>{% for row in payables %}{% set advance_credit = row.advance_offset + row.open_advance %}<tr><td>{{ row.company }}</td><td>{% if row.party_id %}<a class="table-action" href="{{ url_for('payments.outstanding_supplier_detail', company_id=row.company_id, supplier_id=row.party_id) }}">{{ row.party }}</a>{% else %}{{ row.party }}{% endif %}</td><td>{{ row.documents_label }}</td><td>{{ row.date }}</td><td>{{ row.due_date or '' }}</td><td>{{ fmt_money(row.total) }}</td><td>{{ fmt_money(row.paid) }}</td><td>{{ fmt_money(advance_credit) }}</td><td>{{ fmt_money(row.balance) }}</td><td>{{ row.status }}</td><td>{% if row.party_id %}<a class="table-action" href="{{ url_for('payments.outstanding_supplier_detail', company_id=row.company_id, supplier_id=row.party_id) }}">Details</a>{% endif %}</td></tr>{% else %}<tr><td colspan="11" class="empty">No payables.</td></tr>{% endfor %}</tbody>
       </table></div>
-      <input class="table-bottom-scroll" data-table-bottom-scroll type="range" min="0" max="0" step="1" value="0" aria-label="Scroll Supplier Outstanding table horizontally">
+      <div class="table-bottom-scroll" data-table-bottom-scroll aria-label="Scroll Supplier Outstanding table horizontally"><span class="table-bottom-scroll-thumb" data-table-scroll-thumb role="slider" tabindex="0" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" aria-label="Supplier Outstanding horizontal scroll"></span></div>
     </div>
   </section>
 
@@ -72,7 +72,7 @@
       <thead><tr><th>Date</th><th>Company</th><th>Type</th><th>Party</th><th>Original</th><th>Allocated</th><th>Unallocated</th></tr></thead>
       <tbody>{% for row in advances %}<tr><td>{{ row.payment_date }}</td><td>{{ row.company.code }}</td><td>{{ row.payment_type }}</td><td>{{ row.customer.name if row.customer else row.supplier.name if row.supplier else '' }}</td><td>{{ fmt_money(row.total_amount) }}</td><td>{{ fmt_money(row.allocated_amount) }}</td><td>{{ fmt_money(row.unallocated_amount) }}</td></tr>{% else %}<tr><td colspan="7" class="empty">No advances.</td></tr>{% endfor %}</tbody>
       </table></div>
-      <input class="table-bottom-scroll" data-table-bottom-scroll type="range" min="0" max="0" step="1" value="0" aria-label="Scroll Advances table horizontally">
+      <div class="table-bottom-scroll" data-table-bottom-scroll aria-label="Scroll Advances table horizontally"><span class="table-bottom-scroll-thumb" data-table-scroll-thumb role="slider" tabindex="0" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" aria-label="Advances horizontal scroll"></span></div>
     </div>
   </section>
   </div>

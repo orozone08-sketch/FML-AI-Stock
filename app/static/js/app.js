@@ -1735,39 +1735,71 @@ function initializeTableBottomScrollbars(root = document) {
   root.querySelectorAll("[data-table-scroll-shell]").forEach((shell) => {
     const viewport = shell.querySelector("[data-table-scroll-viewport]");
     const bottomScroll = shell.querySelector("[data-table-bottom-scroll]");
-    if (!viewport || !bottomScroll || bottomScroll.dataset.ready === "true") return;
+    const thumb = bottomScroll?.querySelector("[data-table-scroll-thumb]");
+    if (!viewport || !bottomScroll || !thumb || bottomScroll.dataset.ready === "true") return;
 
     bottomScroll.dataset.ready = "true";
-    let syncing = false;
+    let metrics = { maxScroll: 0, maxThumbLeft: 0, thumbWidth: 72 };
+    let dragging = false;
+    let pointerOffset = 0;
+
+    const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
     const update = () => {
       const table = viewport.querySelector("table");
       const renderedTableWidth = table?.getBoundingClientRect().width || table?.offsetWidth || 0;
       const contentWidth = Math.max(viewport.scrollWidth, table?.scrollWidth || 0, renderedTableWidth);
-      const hasHorizontalOverflow = contentWidth > viewport.clientWidth + 1;
+      const trackWidth = Math.max(0, bottomScroll.clientWidth - 2);
+      const visibleRatio = contentWidth > 0 ? Math.min(1, viewport.clientWidth / contentWidth) : 1;
+      const thumbWidth = Math.min(trackWidth, Math.max(72, Math.round(trackWidth * visibleRatio)));
       const maxScroll = Math.max(0, contentWidth - viewport.clientWidth);
-      bottomScroll.max = String(maxScroll);
-      bottomScroll.value = String(Math.min(maxScroll, Math.max(0, viewport.scrollLeft)));
-      bottomScroll.setAttribute("aria-disabled", String(!hasHorizontalOverflow));
-      if (!hasHorizontalOverflow) viewport.scrollLeft = 0;
+      metrics = {
+        maxScroll,
+        thumbWidth,
+        maxThumbLeft: Math.max(0, trackWidth - thumbWidth),
+      };
+      thumb.style.width = `${thumbWidth}px`;
+      const ratio = maxScroll ? viewport.scrollLeft / maxScroll : 0;
+      thumb.style.transform = `translateX(${clamp(ratio, 0, 1) * metrics.maxThumbLeft}px)`;
+      thumb.setAttribute("aria-valuemax", String(Math.round(maxScroll)));
+      thumb.setAttribute("aria-valuenow", String(Math.round(viewport.scrollLeft)));
     };
 
-    const syncViewportToBottom = () => {
-      if (syncing) return;
-      syncing = true;
-      viewport.scrollLeft = Number(bottomScroll.value) || 0;
-      syncing = false;
+    const setScrollFromPointer = (clientX) => {
+      if (!metrics.maxScroll || !metrics.maxThumbLeft) return;
+      const rect = bottomScroll.getBoundingClientRect();
+      const thumbLeft = clamp(clientX - rect.left - pointerOffset, 0, metrics.maxThumbLeft);
+      viewport.scrollLeft = (thumbLeft / metrics.maxThumbLeft) * metrics.maxScroll;
+      update();
     };
 
-    const syncBottomToViewport = () => {
-      if (syncing) return;
-      syncing = true;
-      bottomScroll.value = String(Math.min(Number(bottomScroll.max) || 0, Math.max(0, viewport.scrollLeft)));
-      syncing = false;
+    const startDragging = (event) => {
+      dragging = true;
+      pointerOffset = event.target === thumb
+        ? event.clientX - thumb.getBoundingClientRect().left
+        : metrics.thumbWidth / 2;
+      if (event.target !== thumb) setScrollFromPointer(event.clientX);
+      bottomScroll.setPointerCapture?.(event.pointerId);
+      event.preventDefault();
     };
 
-    viewport.addEventListener("scroll", syncBottomToViewport, { passive: true });
-    bottomScroll.addEventListener("input", syncViewportToBottom);
+    bottomScroll.addEventListener("pointerdown", startDragging);
+    bottomScroll.addEventListener("pointermove", (event) => {
+      if (dragging) setScrollFromPointer(event.clientX);
+    });
+    bottomScroll.addEventListener("pointerup", () => { dragging = false; });
+    bottomScroll.addEventListener("pointercancel", () => { dragging = false; });
+    thumb.addEventListener("keydown", (event) => {
+      const step = Math.max(80, viewport.clientWidth * 0.8);
+      if (event.key === "ArrowLeft") viewport.scrollLeft -= step;
+      else if (event.key === "ArrowRight") viewport.scrollLeft += step;
+      else if (event.key === "Home") viewport.scrollLeft = 0;
+      else if (event.key === "End") viewport.scrollLeft = metrics.maxScroll;
+      else return;
+      event.preventDefault();
+      update();
+    });
+    viewport.addEventListener("scroll", update, { passive: true });
     window.addEventListener("resize", update, { passive: true });
     if (typeof ResizeObserver !== "undefined") {
       const observer = new ResizeObserver(update);
