@@ -388,9 +388,15 @@ def show(name):
         flash("Unknown report.", "danger")
         return redirect(url_for("reports.index"))
     title = REPORT_TITLES[name]
-    if name in {"sales", "purchases"} and request.args.get("month"):
+    report_month = (request.args.get("month") or "").strip() if name in {"sales", "purchases", "current-stock"} else ""
+    month_end = None
+    if name == "current-stock":
+        month_start, month_end = month_bounds()
+        if not month_start:
+            report_month = ""
+    if name in {"sales", "purchases", "current-stock"} and report_month:
         title = f"{title} - {request.args['month']}"
-    headers, rows = build_report(name)
+    headers, rows = current_stock_rows(month_end) if name == "current-stock" else build_report(name)
     export_format = request.args.get("format")
     if export_format:
         require_permission("reports", "export")(lambda: None)()
@@ -404,6 +410,7 @@ def show(name):
         month_detail_urls=monthly_detail_urls(name, rows),
         reports=REPORT_TITLES,
         totals=report_totals(headers, rows),
+        report_month=report_month,
     )
 
 
@@ -889,15 +896,25 @@ def build_report(name):
     return builders[name]()
 
 
-def current_stock_rows():
+def current_stock_rows(period_end=None):
     headers = ["Company", "Stock book", "Item code", "Item", "Unit", "Quantity", "FIFO value", "Minimum stock", "Status"]
     rows = []
     books = scope_query_to_active_company(StockBook.query, StockBook.company_id).order_by(StockBook.code).all()
     items = Item.query.order_by(Item.code).all()
+    ledger_query = scope_query_to_active_company(StockLedgerEntry.query, StockLedgerEntry.company_id)
+    if period_end:
+        ledger_query = ledger_query.filter(StockLedgerEntry.entry_date < period_end)
+    ledger_totals = {}
+    for entry in ledger_query.order_by(StockLedgerEntry.entry_date, StockLedgerEntry.id).all():
+        key = (entry.company_id, entry.stock_book_id, entry.item_id)
+        total = ledger_totals.setdefault(key, {"quantity": Decimal("0.000"), "value": Decimal("0.00")})
+        total["quantity"] += qty(entry.quantity_in) - qty(entry.quantity_out)
+        total["value"] += money(entry.value if entry.movement_type == "IN" else -entry.value)
     for book in books:
         for item in items:
-            quantity = available_quantity(book.company_id, book.id, item.id)
-            value = available_value(book.company_id, book.id, item.id)
+            total = ledger_totals.get((book.company_id, book.id, item.id), {})
+            quantity = qty(total.get("quantity", Decimal("0.000")))
+            value = money(total.get("value", Decimal("0.00")))
             if quantity < Decimal("0.000"):
                 status = "NEGATIVE"
             elif quantity == Decimal("0.000"):
