@@ -74,7 +74,7 @@
                 </form>
               {% endif %}
             {% endfor %}
-            {% if not user_fixed_company %}
+            {% if can_view_all_companies %}
               <form method="post" action="{{ url_for('company.all_companies') }}" class="footer-company-form">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="next" value="{{ url_for('dashboard.index') }}">
@@ -144,6 +144,10 @@
                   <img src="{{ url_for('static', filename='img/fastockflow-icon.png', v=asset_version) }}" alt="">
                   <span>All companies</span>
                 </a>
+              {% endif %}
+
+              {% if can_view_all_companies and active_company %}
+                <a class="quick-action" href="{{ url_for('company.choose', all='1', next=request.full_path) }}" title="Open the combined Admin view">Both companies</a>
               {% endif %}
 
               {% if due_alert_count is not none %}

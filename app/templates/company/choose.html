@@ -22,4 +22,19 @@
       </div>
     {% endfor %}
   </section>
+  {% if can_view_all_companies %}
+    <section class="panel">
+      <div class="panel-title">
+        <div>
+          <h2>Admin cross-company view</h2>
+          <p class="muted">View combined Aditya International and FirstTech Machine LLP data, including inter-company sales, purchases, stock transfers, and pending payments.</p>
+        </div>
+      </div>
+      <form method="post" action="{{ url_for('company.all_companies') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="next" value="{{ next_url }}">
+        <button class="primary-button" type="submit">View both companies</button>
+      </form>
+    </section>
+  {% endif %}
 {% endblock %}

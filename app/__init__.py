@@ -76,6 +76,7 @@ def register_template_helpers(app):
         company_logo,
         company_theme,
         other_company,
+        user_can_view_all_companies,
         user_has_fixed_company,
     )
     from app.core.security import can
@@ -139,6 +140,7 @@ def register_template_helpers(app):
             "asset_version": app.config.get("STATIC_ASSET_VERSION", "1"),
             "active_company": selected_company,
             "company_choices": choices,
+            "can_view_all_companies": user_can_view_all_companies(current_user) if current_user.is_authenticated else False,
             "user_fixed_company": fixed_company_user,
             "company_logo": company_logo,
             "company_theme": company_theme,

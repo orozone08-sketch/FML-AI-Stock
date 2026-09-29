@@ -5,6 +5,11 @@
   <section class="panel">
     <form class="toolbar" method="get" data-live-search-form>
       <a class="secondary-button" href="{{ url_for('reports.index') }}">All reports</a>
+      {% if request.view_args.name == 'inter-company' and can_view_all_companies and active_company %}
+        <a class="primary-button" href="{{ url_for('company.choose', all='1', next=request.full_path) }}">View both companies</a>
+      {% elif request.view_args.name == 'inter-company' and can_view_all_companies and not active_company %}
+        <span class="status-badge success">Admin combined view: Aditya + FirstTech</span>
+      {% endif %}
       {% if request.view_args.name == 'current-stock' %}
         <input name="month" type="month" value="{{ report_month or '' }}" aria-label="Stock month">
       {% endif %}
