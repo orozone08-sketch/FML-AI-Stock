@@ -33,6 +33,7 @@ from app.services.entry_exports import (
     print_entry,
 )
 from app.services.sale_invoice import export_sale_invoice_pdf, sale_invoice_context
+from app.services.sale_import import parse_sales_workbook
 from app.services.transactions import (
     create_opening_advance_paid,
     create_opening_advance_received,
@@ -239,6 +240,27 @@ def sale():
     sales = sales.order_by(Sale.invoice_date.desc(), Sale.id.desc()).all()
     return render_template("transactions/sale.html", sales=sales, **options(scope_to_active_company=True))
 
+
+@bp.route("/sale/import", methods=["GET", "POST"])
+@login_required
+@require_permission("sale", "view")
+def sale_import():
+    preview = None
+    if request.method == "POST":
+        require_permission("sale", "create")(lambda: None)()
+        try:
+            upload = request.files.get("excel_file")
+            if not upload or not upload.filename:
+                raise ValueError("Please choose an Excel file.")
+            preview = parse_sales_workbook(upload.stream, upload.filename)
+            flash("Preview generated. No records were saved.", "success")
+        except Exception as exc:
+            flash(str(exc), "danger")
+    return render_template(
+        "transactions/sale_import.html",
+        preview=preview,
+        **options(scope_to_active_company=True),
+    )
 
 @bp.route("/sale/<int:sale_id>/edit", methods=["GET", "POST"])
 @login_required
