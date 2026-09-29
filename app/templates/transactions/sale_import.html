@@ -13,13 +13,24 @@
       <label>Company
         <select name="company_id" required>{% for company in companies %}<option value="{{ company.id }}" {% if active_company and company.id == active_company.id %}selected{% endif %}>{{ company.code }} - {{ company.name }}</option>{% endfor %}</select>
       </label>
-      <label class="full-span">Excel file
+      <label>Stock book
+        <select name="stock_book_id" required>{% for book in stock_books %}<option value="{{ book.id }}" {% if selected_stock_book_id and book.id|string == selected_stock_book_id|string %}selected{% endif %}>{{ book.code }} - {{ book.name }}</option>{% endfor %}</select>
+      </label>      <label class="full-span">Excel file
         <input name="excel_file" type="file" accept=".xls,.xlsx" required>
       </label>
-      <div class="form-actions full-span"><button class="primary-button" type="submit">Preview Import</button></div>
+      <div class="form-actions full-span"><button class="secondary-button" name="action" value="preview" type="submit">Preview Import</button><button class="primary-button" name="action" value="import" type="submit" data-confirm="Import these sales into the selected company and stock book? Existing invoice numbers will be skipped.">Import Data</button></div>
     </form>
   </section>
 
+  {% if import_result %}
+    <section class="panel">
+      <div class="panel-title"><h2>Import Result</h2><span>{{ import_result.created|length }} created · {{ import_result.skipped|length }} skipped</span></div>
+      <p>Created customers: {{ import_result.created_customers }} · Created items: {{ import_result.created_items }}. Imported sales remain unpaid because this workbook contains payment terms, not actual receipt allocations.</p>
+      {% if import_result.skipped %}
+        <div class="table-wrap"><table><thead><tr><th>Invoice</th><th>Reason</th></tr></thead><tbody>{% for row in import_result.skipped %}<tr><td>{{ row.invoice_number }}</td><td>{{ row.reason }}</td></tr>{% endfor %}</tbody></table></div>
+      {% endif %}
+    </section>
+  {% endif %}
   {% if preview %}
     <section class="panel">
       <div class="panel-title">
