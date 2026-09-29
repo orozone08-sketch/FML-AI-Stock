@@ -34,6 +34,7 @@ from app.services.entry_exports import (
 )
 from app.services.sale_invoice import export_sale_invoice_pdf, sale_invoice_context
 from app.services.sale_import import import_sales_workbook, parse_sales_workbook
+from app.services.purchase_import import import_purchase_workbook, parse_purchase_workbook
 from app.services.transactions import (
     create_opening_advance_paid,
     create_opening_advance_received,
@@ -150,6 +151,47 @@ def purchase():
         purchases = purchases.filter(Purchase.company_id == company_id)
     purchases = purchases.order_by(Purchase.bill_date.desc(), Purchase.id.desc()).all()
     return render_template("transactions/purchase.html", purchases=purchases, **options(scope_to_active_company=True))
+
+
+@bp.route("/purchase/import", methods=["GET", "POST"])
+@login_required
+@require_permission("purchase", "view")
+def purchase_import():
+    preview = None
+    import_result = None
+    selected_stock_book_id = request.form.get("stock_book_id") or request.args.get("stock_book_id")
+    if request.method == "POST":
+        require_permission("purchase", "create")(lambda: None)()
+        try:
+            upload = request.files.get("excel_file")
+            if not upload or not upload.filename:
+                raise ValueError("Please choose an Excel file.")
+            preview = parse_purchase_workbook(upload.stream, upload.filename)
+            if request.form.get("action") == "import":
+                import_result = import_purchase_workbook(
+                    preview,
+                    request.form.get("company_id"),
+                    selected_stock_book_id,
+                    current_user,
+                )
+                db.session.commit()
+                flash(
+                    f"Imported {len(import_result['created'])} purchases. "
+                    f"Skipped {len(import_result['skipped'])}.",
+                    "success" if not import_result["skipped"] else "warning",
+                )
+            else:
+                flash("Preview generated. No records were saved.", "success")
+        except Exception as exc:
+            db.session.rollback()
+            flash(str(exc), "danger")
+    return render_template(
+        "transactions/purchase_import.html",
+        preview=preview,
+        import_result=import_result,
+        selected_stock_book_id=selected_stock_book_id,
+        **options(scope_to_active_company=True),
+    )
 
 
 @bp.route("/purchase/<int:purchase_id>/edit", methods=["GET", "POST"])

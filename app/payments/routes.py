@@ -13,6 +13,7 @@ from app.services.customer_ledger import customer_ledger_entries
 from app.services.customer_profile import customer_profile
 from app.services.outstanding import grouped_party_outstanding, outstanding_summary_from_rows
 from app.services.payments import create_customer_receipt, create_supplier_payment, delete_payment, update_payment
+from app.services.payment_import import import_payment_workbook, parse_payment_workbook
 
 bp = Blueprint("payments", __name__, url_prefix="/finance")
 
@@ -142,6 +143,42 @@ def index():
         recent_payments = recent_payments.filter(Payment.company_id == company.id)
     recent_payments = recent_payments.order_by(Payment.payment_date.desc(), Payment.id.desc()).all()
     return render_template("payments/index.html", recent_payments=recent_payments, **finance_options())
+
+
+@bp.route("/payments/import", methods=["GET", "POST"])
+@login_required
+@require_permission("payments", "view")
+def payment_import():
+    preview = None
+    import_result = None
+    if request.method == "POST":
+        require_permission("payments", "create")(lambda: None)()
+        try:
+            upload = request.files.get("excel_file")
+            if not upload or not upload.filename:
+                raise ValueError("Please choose an Excel file.")
+            preview = parse_payment_workbook(upload.stream, upload.filename)
+            if request.form.get("action") == "import":
+                import_result = import_payment_workbook(
+                    preview, request.form.get("company_id"), current_user
+                )
+                db.session.commit()
+                flash(
+                    f"Imported {len(import_result['created'])} payments. "
+                    f"Skipped {len(import_result['skipped'])}.",
+                    "success" if not import_result["skipped"] else "warning",
+                )
+            else:
+                flash("Preview generated. No records were saved.", "success")
+        except Exception as exc:
+            db.session.rollback()
+            flash(str(exc), "danger")
+    return render_template(
+        "payments/import.html",
+        preview=preview,
+        import_result=import_result,
+        **finance_options(),
+    )
 
 
 @bp.route("/payments/<int:payment_id>/export/<fmt>")

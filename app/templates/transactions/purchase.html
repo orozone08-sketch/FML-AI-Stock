@@ -30,7 +30,7 @@
 
   <section class="panel">
     <div class="panel-title">
-      <h2>Recent Purchases</h2>
+      <h2>Recent Purchases</h2><a href="{{ url_for('transactions.purchase_import') }}">Import Excel</a>
       <span class="actions">
         <a href="{{ url_for('reports.show', name='purchases-monthly') }}">Monthly</a>
         <a href="{{ url_for('reports.show', name='purchases') }}">Report</a>
