@@ -14,6 +14,12 @@
       <label>Supplier
         <select name="supplier_id" required>{% for supplier in suppliers %}<option value="{{ supplier.id }}">{{ supplier.code }} - {{ supplier.name }}</option>{% endfor %}</select>
       </label>
+      <label>Counterparty company (optional)
+        <select name="counterparty_company_id">
+          <option value="">Not an inter-company entry</option>
+          {% for company in counterparty_companies %}<option value="{{ company.id }}" {% if active_company and company.id == active_company.id %}disabled{% endif %}>{{ company.code }} - {{ company.name }}</option>{% endfor %}
+        </select>
+      </label>
       <label>Purchase type
         <select name="purchase_type"><option value="GST">GST</option><option value="CASH">CASH</option></select>
       </label>

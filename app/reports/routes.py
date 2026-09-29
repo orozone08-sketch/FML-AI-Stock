@@ -14,6 +14,8 @@ from app.models import (
     Customer,
     FIFOLayer,
     Item,
+    InterCompanyLedgerEntry,
+    InterCompanyTransfer,
     Payable,
     Payment,
     Purchase,
@@ -1365,23 +1367,115 @@ def stock_alert_rows():
     return headers, rows
 
 
-def inter_company_rows():
-    headers = ["Owner", "User", "Item", "Opening Pending", "Issued This Month", "Returned This Month", "Pending Balance"]
-    rows = []
-    for entry in pending_transfer_summary():
-        if not in_active_company_scope(entry["owner"].id, entry["user"].id):
+def _company_for_party(explicit_company, owner_id, party_name, companies):
+    if explicit_company and explicit_company.id != owner_id:
+        return explicit_company
+    key = " ".join(str(party_name or "").casefold().split())
+    if not key:
+        return None
+    for company in companies:
+        if company.id == owner_id:
             continue
-        rows.append([
-            entry["owner"].code,
-            entry["user"].code,
-            entry["item"].display_name,
-            fmt_qty(entry["opening"]),
-            fmt_qty(entry["issued"]),
-            fmt_qty(entry["returned"]),
-            fmt_qty(entry["pending"]),
-        ])
-    return headers, rows
+        if key in {
+            " ".join(str(company.code or "").casefold().split()),
+            " ".join(str(company.name or "").casefold().split()),
+        }:
+            return company
+    return None
 
+
+def inter_company_rows():
+    headers = [
+        "Direction",
+        "Source",
+        "Document",
+        "Date",
+        "Item",
+        "Stock quantity",
+        "Document value",
+        "Payment pending",
+        "Status",
+    ]
+    rows = []
+    companies = Company.query.filter_by(active=True).all()
+
+    sales = scope_query_to_active_company(
+        Sale.query.filter_by(is_void=False), Sale.company_id
+    ).order_by(Sale.invoice_date, Sale.id).all()
+    for sale in sales:
+        counterparty = _company_for_party(
+            sale.counterparty_company, sale.company_id, sale.customer.name, companies
+        )
+        if not counterparty:
+            continue
+        for index, line in enumerate(sale.lines):
+            rows.append([
+                f"{sale.company.code} -> {counterparty.code}",
+                "Sale",
+                sale.invoice_number,
+                sale.invoice_date,
+                line.item.display_name,
+                fmt_qty(line.quantity),
+                fmt_money(line.line_total),
+                fmt_money(sale.balance_amount if index == 0 else Decimal("0.00")),
+                sale.payment_status,
+            ])
+
+    purchases = scope_query_to_active_company(
+        Purchase.query.filter_by(is_void=False), Purchase.company_id
+    ).order_by(Purchase.bill_date, Purchase.id).all()
+    for purchase in purchases:
+        counterparty = _company_for_party(
+            purchase.counterparty_company,
+            purchase.company_id,
+            purchase.supplier.name,
+            companies,
+        )
+        if not counterparty:
+            continue
+        for index, line in enumerate(purchase.lines):
+            rows.append([
+                f"{counterparty.code} -> {purchase.company.code}",
+                "Purchase",
+                purchase.bill_number,
+                purchase.bill_date,
+                line.item.display_name,
+                fmt_qty(line.quantity),
+                fmt_money(line.line_total),
+                fmt_money(purchase.balance_amount if index == 0 else Decimal("0.00")),
+                purchase.payment_status,
+            ])
+
+    transfers = InterCompanyTransfer.query.filter_by(is_void=False).order_by(
+        InterCompanyTransfer.transfer_date, InterCompanyTransfer.id
+    ).all()
+    for transfer in transfers:
+        if not in_active_company_scope(transfer.from_company_id, transfer.to_company_id):
+            continue
+        ledger = {
+            (entry.item_id, entry.id): entry
+            for entry in InterCompanyLedgerEntry.query.filter_by(transfer_id=transfer.id).all()
+        }
+        for line in transfer.lines:
+            pending = money(
+                sum(
+                    (entry.balance_amount for entry in ledger.values()
+                     if entry.item_id == line.item_id and entry.balance_amount > 0),
+                    Decimal("0.00"),
+                )
+            )
+            rows.append([
+                f"{transfer.from_company.code} -> {transfer.to_company.code}",
+                "Transfer",
+                transfer.reference_number,
+                transfer.transfer_date,
+                line.item.display_name,
+                fmt_qty(line.quantity),
+                fmt_money(line.fifo_value),
+                fmt_money(pending),
+                "PENDING" if pending else "RETURNED",
+            ])
+    return headers, rows
 
 def opening_summary_rows():
     headers = ["Type", "Company", "Party/Book", "Document", "Date", "Amount/Value", "Paid/Allocated", "Balance/Qty", "Status", "Created by"]

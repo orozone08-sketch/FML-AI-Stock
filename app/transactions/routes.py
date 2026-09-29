@@ -77,6 +77,7 @@ def options(scope_to_active_company=False):
         stock_books = stock_books.filter(StockBook.company_id == company.id)
     return {
         "companies": companies.order_by(Company.code).all(),
+        "counterparty_companies": Company.query.filter_by(active=True).order_by(Company.code).all(),
         "stock_books": stock_books.order_by(StockBook.code).all(),
         "items": Item.query.filter_by(active=True).order_by(Item.code).all(),
         "suppliers": Supplier.query.filter_by(active=True).order_by(Supplier.code).all(),

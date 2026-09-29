@@ -44,6 +44,18 @@ TRANSFER_RETURN = "RETURN"
 TRANSFER_OPENING = "OPENING"
 
 
+def _counterparty_company(data, company):
+    value = data.get("counterparty_company_id")
+    if not value:
+        return None
+    counterparty = db.session.get(Company, int(value))
+    if not counterparty or not counterparty.active:
+        raise ValueError("Counterparty company is not active.")
+    if counterparty.id == company.id:
+        raise ValueError("Counterparty company must be different from the document company.")
+    return counterparty
+
+
 def _line_total(quantity, rate, gst_percent, taxable=True):
     subtotal = money(quantity * rate)
     gst_amount = money(subtotal * Decimal(gst_percent) / Decimal("100")) if taxable else Decimal("0.00")
@@ -114,6 +126,7 @@ def _sync_payable_from_purchase(purchase):
     payable.company_id = purchase.company_id
     payable.stock_book_id = purchase.stock_book_id
     payable.supplier_id = purchase.supplier_id
+    payable.counterparty_company_id = purchase.counterparty_company_id
     payable.document_number = purchase.bill_number
     payable.document_date = purchase.bill_date
     payable.due_date = purchase.due_date
@@ -133,6 +146,7 @@ def _sync_receivable_from_sale(sale):
     receivable.company_id = sale.company_id
     receivable.stock_book_id = sale.stock_book_id
     receivable.customer_id = sale.customer_id
+    receivable.counterparty_company_id = sale.counterparty_company_id
     receivable.document_number = sale.invoice_number
     receivable.document_date = sale.invoice_date
     receivable.due_date = sale.due_date
@@ -604,6 +618,7 @@ def create_purchase(data, lines, user):
         data.get("company_id"), data.get("stock_book_id"), data.get("purchase_type"), "purchase"
     )
     supplier = active_supplier(data.get("supplier_id"))
+    counterparty_company = _counterparty_company(data, company)
     bill_number = data.get("bill_number", "").strip()
     if not bill_number:
         raise ValueError("Bill number is required.")
@@ -614,6 +629,7 @@ def create_purchase(data, lines, user):
         company_id=company.id,
         stock_book_id=stock_book.id,
         supplier_id=supplier.id,
+        counterparty_company_id=counterparty_company.id if counterparty_company else None,
         purchase_type=data.get("purchase_type"),
         bill_number=bill_number,
         bill_date=bill_date,
@@ -686,6 +702,7 @@ def create_purchase(data, lines, user):
             company_id=company.id,
             stock_book_id=stock_book.id,
             supplier_id=supplier.id,
+            counterparty_company_id=counterparty_company.id if counterparty_company else None,
             source_type="PURCHASE",
             source_id=purchase.id,
             document_number=bill_number,
@@ -712,6 +729,7 @@ def update_purchase_header(purchase, data, user):
         company_id, stock_book_id, purchase_type, "purchase"
     )
     supplier = active_supplier(data.get("supplier_id"))
+    counterparty_company = _counterparty_company(data, company)
     bill_number = data.get("bill_number", "").strip()
     if not bill_number:
         raise ValueError("Bill number is required.")
@@ -722,6 +740,9 @@ def update_purchase_header(purchase, data, user):
         else default_due(bill_date, supplier.default_credit_days)
     )
     grand_total = positive_money(data.get("grand_total") or purchase.grand_total, "Total")
+
+    if purchase.paid_amount and purchase.counterparty_company_id != (counterparty_company.id if counterparty_company else None):
+        raise ValueError("Counterparty company cannot be changed after payment allocation.")
 
     duplicate = Purchase.query.filter(
         Purchase.id != purchase.id,
@@ -765,6 +786,7 @@ def update_purchase_header(purchase, data, user):
     purchase.stock_book_id = stock_book.id
     purchase.purchase_type = purchase_type
     purchase.supplier_id = supplier.id
+    purchase.counterparty_company_id = counterparty_company.id if counterparty_company else None
     purchase.bill_number = bill_number
     purchase.bill_date = bill_date
     purchase.due_date = due_date
@@ -984,6 +1006,7 @@ def create_sale(data, lines, user):
         data.get("company_id"), data.get("stock_book_id"), data.get("sale_type"), "sale"
     )
     customer = active_customer(data.get("customer_id"))
+    counterparty_company = _counterparty_company(data, company)
     invoice_number = data.get("invoice_number", "").strip()
     if not invoice_number:
         raise ValueError("Invoice number is required.")
@@ -994,6 +1017,7 @@ def create_sale(data, lines, user):
         company_id=company.id,
         stock_book_id=stock_book.id,
         customer_id=customer.id,
+        counterparty_company_id=counterparty_company.id if counterparty_company else None,
         sale_type=data.get("sale_type"),
         invoice_number=invoice_number,
         invoice_date=invoice_date,
@@ -1065,6 +1089,7 @@ def create_sale(data, lines, user):
             company_id=company.id,
             stock_book_id=stock_book.id,
             customer_id=customer.id,
+            counterparty_company_id=counterparty_company.id if counterparty_company else None,
             source_type="SALE",
             source_id=sale.id,
             document_number=invoice_number,
@@ -1088,12 +1113,13 @@ def update_sale_header(sale, data, user):
     sale_type = (data.get("sale_type") or sale.sale_type or "").upper()
     if sale_type not in {"GST", "CASH"}:
         raise ValueError("Invalid sale type.")
-    _company, stock_book = validate_company_book(
+    company, stock_book = validate_company_book(
         sale.company_id,
         data.get("stock_book_id") or sale.stock_book_id,
         sale_type,
         "sale",
     )
+    counterparty_company = _counterparty_company(data, company)
     invoice_number = data.get("invoice_number", "").strip()
     if not invoice_number:
         raise ValueError("Invoice number is required.")
@@ -1105,10 +1131,13 @@ def update_sale_header(sale, data, user):
     )
     if sale.paid_amount and sale.customer_id != customer.id:
         raise ValueError("Customer cannot be changed after receipt allocation.")
+    if sale.paid_amount and sale.counterparty_company_id != (counterparty_company.id if counterparty_company else None):
+        raise ValueError("Counterparty company cannot be changed after receipt allocation.")
     category_changed = sale.stock_book_id != stock_book.id or sale.sale_type != sale_type
 
     before = {
         "customer_id": sale.customer_id,
+        "counterparty_company_id": sale.counterparty_company_id,
         "stock_book_id": sale.stock_book_id,
         "sale_type": sale.sale_type,
         "invoice_number": sale.invoice_number,
@@ -1118,6 +1147,7 @@ def update_sale_header(sale, data, user):
     }
 
     sale.customer_id = customer.id
+    sale.counterparty_company_id = counterparty_company.id if counterparty_company else None
     sale.stock_book_id = stock_book.id
     sale.sale_type = sale_type
     sale.invoice_number = invoice_number

@@ -195,6 +195,7 @@ class Purchase(TimestampMixin, db.Model):
     company_id = db.Column(db.Integer, db.ForeignKey("company.id"), nullable=False)
     stock_book_id = db.Column(db.Integer, db.ForeignKey("stock_book.id"), nullable=False)
     supplier_id = db.Column(db.Integer, db.ForeignKey("supplier.id"), nullable=False)
+    counterparty_company_id = db.Column(db.Integer, db.ForeignKey("company.id"), nullable=True)
     purchase_type = db.Column(db.String(20), nullable=False)
     bill_number = db.Column(db.String(80), nullable=False)
     bill_date = db.Column(db.Date, nullable=False, index=True)
@@ -209,9 +210,10 @@ class Purchase(TimestampMixin, db.Model):
     is_opening = db.Column(db.Boolean, nullable=False, default=False)
     is_void = db.Column(db.Boolean, nullable=False, default=False)
 
-    company = db.relationship("Company")
+    company = db.relationship("Company", foreign_keys=[company_id])
     stock_book = db.relationship("StockBook")
     supplier = db.relationship("Supplier")
+    counterparty_company = db.relationship("Company", foreign_keys=[counterparty_company_id])
     lines = db.relationship("PurchaseLine", back_populates="purchase")
 
     __table_args__ = (
@@ -241,6 +243,7 @@ class Sale(TimestampMixin, db.Model):
     company_id = db.Column(db.Integer, db.ForeignKey("company.id"), nullable=False)
     stock_book_id = db.Column(db.Integer, db.ForeignKey("stock_book.id"), nullable=False)
     customer_id = db.Column(db.Integer, db.ForeignKey("customer.id"), nullable=False)
+    counterparty_company_id = db.Column(db.Integer, db.ForeignKey("company.id"), nullable=True)
     sale_type = db.Column(db.String(20), nullable=False)
     invoice_number = db.Column(db.String(80), nullable=False)
     invoice_date = db.Column(db.Date, nullable=False, index=True)
@@ -257,9 +260,10 @@ class Sale(TimestampMixin, db.Model):
     is_opening = db.Column(db.Boolean, nullable=False, default=False)
     is_void = db.Column(db.Boolean, nullable=False, default=False)
 
-    company = db.relationship("Company")
+    company = db.relationship("Company", foreign_keys=[company_id])
     stock_book = db.relationship("StockBook")
     customer = db.relationship("Customer")
+    counterparty_company = db.relationship("Company", foreign_keys=[counterparty_company_id])
     lines = db.relationship("SaleLine", back_populates="sale")
 
     __table_args__ = (

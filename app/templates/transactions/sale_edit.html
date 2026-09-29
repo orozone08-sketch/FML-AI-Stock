@@ -29,6 +29,12 @@
           {% endfor %}
         </select>
       </label>
+      <label>Counterparty company (optional)
+        <select name="counterparty_company_id">
+          <option value="">Not an inter-company entry</option>
+          {% for company in counterparty_companies %}<option value="{{ company.id }}" {% if company.id == sale.company_id %}disabled{% endif %} {% if company.id == sale.counterparty_company_id %}selected{% endif %}>{{ company.code }} - {{ company.name }}</option>{% endfor %}
+        </select>
+      </label>
       <label>Invoice number
         <input name="invoice_number" value="{{ sale.invoice_number }}" required>
       </label>

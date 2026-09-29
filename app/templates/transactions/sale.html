@@ -24,6 +24,12 @@
           </datalist>
         </div>
       </label>
+      <label>Counterparty company (optional)
+        <select name="counterparty_company_id">
+          <option value="">Not an inter-company entry</option>
+          {% for company in counterparty_companies %}<option value="{{ company.id }}" {% if active_company and company.id == active_company.id %}disabled{% endif %}>{{ company.code }} - {{ company.name }}</option>{% endfor %}
+        </select>
+      </label>
       <label>Sale type
         <select name="sale_type"><option value="GST">GST</option><option value="CASH">CASH</option></select>
       </label>

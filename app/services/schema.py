@@ -15,6 +15,10 @@ def ensure_runtime_schema():
             },
             inspector,
         )
+    if inspector.has_table("sale"):
+        ensure_columns("sale", {"counterparty_company_id": "INTEGER NULL"}, inspector)
+    if inspector.has_table("purchase"):
+        ensure_columns("purchase", {"counterparty_company_id": "INTEGER NULL"}, inspector)
     if inspector.has_table("customer"):
         ensure_columns(
             "customer",
