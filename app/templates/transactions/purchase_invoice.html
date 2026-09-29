@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ purchase.bill_number }} - Purchase Invoice</title>
+  <style>
+    :root {
+      --ink: #000;
+      --paper: #fff;
+      --line: #000;
+      --soft: #f5f5f5;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #e8e8e8;
+      color: var(--ink);
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 10px;
+      line-height: 1.22;
+    }
+    .print-actions {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      width: 210mm;
+      margin: 0 auto;
+      padding: 10px 0;
+    }
+    .print-actions button,
+    .print-actions a {
+      border: 1px solid #111;
+      border-radius: 4px;
+      background: #fff;
+      color: #111;
+      padding: 8px 12px;
+      font-size: 12px;
+      font-weight: 700;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .sheet {
+      width: 210mm;
+      min-height: 297mm;
+      margin: 0 auto 24px;
+      padding: 10mm;
+      background: var(--paper);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+    }
+    .invoice {
+      min-height: 274mm;
+      border: 1px solid var(--line);
+    }
+    .title {
+      height: 8mm;
+      border-bottom: 1px solid var(--line);
+      text-align: center;
+      font-size: 14px;
+      font-weight: 400;
+      line-height: 8mm;
+    }
+    .top-grid {
+      display: grid;
+      grid-template-columns: 49% 51%;
+      min-height: 58mm;
+      border-bottom: 1px solid var(--line);
+    }
+    .left-top {
+      border-right: 1px solid var(--line);
+    }
+    .company-block,
+    .buyer-block {
+      padding: 4px 6px;
+    }
+    .company-block {
+      min-height: 29mm;
+      border-bottom: 1px solid var(--line);
+    }
+    .company-name,
+    .buyer-name,
+    .line-description,
+    .tax-ledger-name,
+    .amount-words {
+      font-weight: 700;
+    }
+    .small-label {
+      font-size: 9px;
+    }
+    .meta-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      height: 100%;
+    }
+    .meta-cell {
+      min-height: 8.2mm;
+      padding: 3px 5px;
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+    .meta-cell:nth-child(even) {
+      border-right: 0;
+    }
+    .meta-cell.wide {
+      grid-column: span 2;
+      border-right: 0;
+      min-height: 9mm;
+    }
+    .meta-label {
+      display: block;
+      font-size: 8.5px;
+    }
+    .meta-value {
+      display: block;
+      margin-top: 1px;
+      font-weight: 700;
+    }
+    .item-table,
+    .tax-table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+    .item-table th,
+    .item-table td,
+    .tax-table th,
+    .tax-table td {
+      border-right: 1px solid var(--line);
+      padding: 3px 4px;
+      vertical-align: top;
+    }
+    .item-table th:last-child,
+    .item-table td:last-child,
+    .tax-table th:last-child,
+    .tax-table td:last-child {
+      border-right: 0;
+    }
+    .item-table thead th {
+      height: 8mm;
+      border-bottom: 1px solid var(--line);
+      text-align: center;
+      font-weight: 400;
+    }
+    .sl { width: 8%; text-align: center; }
+    .description { width: 41%; }
+    .hsn { width: 12%; text-align: center; }
+    .qty { width: 13%; text-align: right; }
+    .rate { width: 11%; text-align: right; }
+    .per { width: 7%; text-align: center; }
+    .amount { width: 14%; text-align: right; }
+    .item-table tbody.main-body {
+      height: 102mm;
+    }
+    .item-table tbody.main-body tr.content-row td {
+      height: 8mm;
+    }
+    .item-table tbody.main-body tr.fill-row td {
+      height: 72mm;
+    }
+    .tax-ledger-row td {
+      padding-top: 4px;
+      padding-bottom: 4px;
+    }
+    .total-row td {
+      border-top: 1px solid var(--line);
+      font-weight: 700;
+    }
+    .words-row {
+      min-height: 18mm;
+      padding: 5px 6px;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+    .words-flex {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .tax-table th {
+      border-bottom: 1px solid var(--line);
+      text-align: center;
+      font-weight: 400;
+    }
+    .tax-table tfoot td {
+      border-top: 1px solid var(--line);
+      font-weight: 700;
+    }
+    .tax-rate {
+      text-align: right;
+      width: 8%;
+    }
+    .footer-grid {
+      display: grid;
+      grid-template-columns: 52% 48%;
+      min-height: 42mm;
+      border-top: 1px solid var(--line);
+    }
+    .footer-left,
+    .footer-right {
+      padding: 5px 6px;
+    }
+    .footer-left {
+      border-right: 1px solid var(--line);
+    }
+    .declaration {
+      margin-top: 8px;
+    }
+    .bank-title {
+      font-weight: 700;
+    }
+    .signature {
+      margin-top: 18mm;
+      text-align: right;
+      font-weight: 700;
+    }
+    .generated-note {
+      padding-top: 3px;
+      text-align: center;
+      font-size: 9px;
+    }
+    @media print {
+      @page { size: A4 portrait; margin: 10mm; }
+      body { background: #fff; }
+      .print-actions { display: none; }
+      .sheet {
+        width: auto;
+        min-height: auto;
+        margin: 0;
+        padding: 0;
+        box-shadow: none;
+      }
+      .invoice { min-height: 274mm; }
+    }
+  </style>
+</head>
+<body>
+  <div class="print-actions">
+    <button type="button" onclick="window.print()">Print</button>
+    <a href="{{ url_for('transactions.purchase_export', purchase_id=purchase.id, fmt='pdf') }}">PDF</a>
+    <a href="javascript:history.back()">Back</a>
+  </div>
+
+  <main class="sheet">
+    <section class="invoice" aria-label="Purchase Invoice {{ purchase.bill_number }}">
+      <header class="title">Purchase Invoice</header>
+
+      <section class="top-grid">
+        <div class="left-top">
+          <div class="company-block">
+            <div class="company-name">{{ company_profile.name }}</div>
+            {% for line in company_profile.address_lines %}
+              <div>{{ line }}</div>
+            {% endfor %}
+            {% if company_profile.gstin %}<div>GSTIN/UIN: {{ company_profile.gstin }}</div>{% endif %}
+            <div>State Name : {{ company_profile.state }}, Code : {{ company_profile.state_code }}</div>
+            {% if company_profile.contact %}<div>Contact : {{ company_profile.contact }}</div>{% endif %}
+            {% if company_profile.email %}<div>E-Mail : {{ company_profile.email }}</div>{% endif %}
+          </div>
+          <div class="buyer-block">
+            <div class="small-label">Supplier (Bill from)</div>
+            <div class="buyer-name">{{ buyer.name }}</div>
+            {% if buyer.contact_person %}<div>{{ buyer.contact_person }}</div>{% endif %}
+            {% for line in buyer.address_lines %}
+              <div>{{ line }}</div>
+            {% endfor %}
+            {% if buyer.city %}<div>{{ buyer.city }}</div>{% endif %}
+            {% if buyer.mobile %}<div>Contact : {{ buyer.mobile }}</div>{% endif %}
+            {% if buyer.gstin %}<div>GSTIN/UIN : {{ buyer.gstin }}</div>{% endif %}
+            <div>State Name : {{ buyer.state }}, Code : {{ buyer.state_code }}</div>
+          </div>
+        </div>
+
+        <div class="meta-grid">
+          <div class="meta-cell">
+            <span class="meta-label">Bill No.</span>
+            <span class="meta-value">{{ purchase.bill_number }}</span>
+          </div>
+          <div class="meta-cell">
+            <span class="meta-label">Dated</span>
+            <span class="meta-value">{{ invoice_date }}</span>
+          </div>
+          <div class="meta-cell">
+            <span class="meta-label">Delivery Note</span>
+            <span class="meta-value">&nbsp;</span>
+          </div>
+          <div class="meta-cell">
+            <span class="meta-label">Mode/Terms of Payment</span>
+            <span class="meta-value">{{ payment_terms }}</span>
+          </div>
+          <div class="meta-cell">
+            <span class="meta-label">Reference No. &amp; Date.</span>
+            <span class="meta-value">&nbsp;</span>
+          </div>
+          <div class="meta-cell">
+            <span class="meta-label">Other References</span>
+            <span class="meta-value">&nbsp;</span>
+          </div>
+          <div class="meta-cell">
+            <span class="meta-label">Buyer's Order No.</span>
+            <span class="meta-value">&nbsp;</span>
+          </div>
+          <div class="meta-cell">
+            <span class="meta-label">Dated</span>
+            <span class="meta-value">&nbsp;</span>
+          </div>
+          <div class="meta-cell">
+            <span class="meta-label">Dispatch Doc No.</span>
+            <span class="meta-value">&nbsp;</span>
+          </div>
+          <div class="meta-cell">
+            <span class="meta-label">Delivery Note Date</span>
+            <span class="meta-value">&nbsp;</span>
+          </div>
+          <div class="meta-cell">
+            <span class="meta-label">Dispatched through</span>
+            <span class="meta-value">{{ dispatch_method }}</span>
+          </div>
+          <div class="meta-cell">
+            <span class="meta-label">Destination</span>
+            <span class="meta-value">{{ buyer.city }}</span>
+          </div>
+          <div class="meta-cell wide">
+            <span class="meta-label">Terms of Delivery</span>
+            <span class="meta-value">{{ terms_of_delivery }}</span>
+          </div>
+        </div>
+      </section>
+
+      <table class="item-table">
+        <thead>
+          <tr>
+            <th class="sl">Sl No.</th>
+            <th class="description">Description of Goods</th>
+            <th class="hsn">HSN/SAC</th>
+            <th class="qty">Quantity</th>
+            <th class="rate">Rate</th>
+            <th class="per">per</th>
+            <th class="amount">Amount</th>
+          </tr>
+        </thead>
+        <tbody class="main-body">
+          {% for line in lines %}
+            <tr class="content-row">
+              <td class="sl">{{ line.index }}</td>
+              <td class="description line-description">{{ line.description }}</td>
+              <td class="hsn">{{ line.hsn }}</td>
+              <td class="qty">{{ line.quantity }}</td>
+              <td class="rate">{{ line.rate }}</td>
+              <td class="per">{{ line.unit }}</td>
+              <td class="amount">{{ line.amount }}</td>
+            </tr>
+          {% endfor %}
+          {% if has_gst %}
+            <tr class="tax-ledger-row">
+              <td></td>
+              <td class="tax-ledger-name">{{ cgst_label }}</td>
+              <td></td>
+              <td></td>
+              <td></td>
+              <td></td>
+              <td class="amount">{{ invoice_amount(cgst_total) }}</td>
+            </tr>
+            <tr class="tax-ledger-row">
+              <td></td>
+              <td class="tax-ledger-name">{{ sgst_label }}</td>
+              <td></td>
+              <td></td>
+              <td></td>
+              <td></td>
+              <td class="amount">{{ invoice_amount(sgst_total) }}</td>
+            </tr>
+          {% endif %}
+          <tr class="fill-row">
+            <td></td><td></td><td></td><td></td><td></td><td></td><td></td>
+          </tr>
+          <tr class="total-row">
+            <td></td>
+            <td>Total</td>
+            <td></td>
+            <td class="qty">{{ total_quantity }}</td>
+            <td></td>
+            <td></td>
+            <td class="amount">₹{{ invoice_amount(grand_total) }}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <section class="words-row">
+        <div class="words-flex">
+          <div>
+            <div>Amount Chargeable (in words)</div>
+            <div class="amount-words">{{ amount_words }}</div>
+          </div>
+          <div>E. &amp; O.E</div>
+        </div>
+      </section>
+
+      <table class="tax-table">
+        <thead>
+          <tr>
+            <th rowspan="2">HSN/SAC</th>
+            <th rowspan="2">Taxable Value</th>
+            <th colspan="2">Central Tax</th>
+            <th colspan="2">State Tax</th>
+            <th rowspan="2">Total Tax Amount</th>
+          </tr>
+          <tr>
+            <th class="tax-rate">Rate</th>
+            <th>Amount</th>
+            <th class="tax-rate">Rate</th>
+            <th>Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in tax_summary %}
+            <tr>
+              <td>{{ row.hsn }}</td>
+              <td class="amount">{{ row.taxable }}</td>
+              <td class="tax-rate">{{ row.cgst_rate }}%</td>
+              <td class="amount">{{ row.cgst_amount }}</td>
+              <td class="tax-rate">{{ row.sgst_rate }}%</td>
+              <td class="amount">{{ row.sgst_amount }}</td>
+              <td class="amount">{{ row.tax }}</td>
+            </tr>
+          {% else %}
+            <tr>
+              <td colspan="7">No GST charged for this invoice.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td>Total</td>
+            <td class="amount">{{ invoice_amount(subtotal) }}</td>
+            <td></td>
+            <td class="amount">{{ invoice_amount(cgst_total) }}</td>
+            <td></td>
+            <td class="amount">{{ invoice_amount(sgst_total) }}</td>
+            <td class="amount">{{ invoice_amount(purchase.gst_total) }}</td>
+          </tr>
+        </tfoot>
+      </table>
+
+      <section class="footer-grid">
+        <div class="footer-left">
+          <div>Tax Amount (in words)</div>
+          <div class="amount-words">{{ tax_words }}</div>
+          <div style="margin-top: 10px;">Company's PAN : <strong>{{ company_profile.pan }}</strong></div>
+          <div class="declaration">
+            <div>Declaration</div>
+            <div>We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.</div>
+          </div>
+        </div>
+        <div class="footer-right">
+          <div class="bank-title">Company's Bank Details</div>
+          <div>A/c Holder's Name : <strong>{{ company_profile.bank_holder }}</strong></div>
+          {% if company_profile.bank_name %}<div>Bank Name : <strong>{{ company_profile.bank_name }}</strong></div>{% endif %}
+          {% if company_profile.bank_account %}<div>A/c No. : <strong>{{ company_profile.bank_account }}</strong></div>{% endif %}
+          {% if company_profile.bank_branch_ifsc %}<div>Branch &amp; IFS Code : <strong>{{ company_profile.bank_branch_ifsc }}</strong></div>{% endif %}
+          <div class="signature">
+            <div>for {{ company_profile.name }}</div>
+            <div style="margin-top: 12mm;">Authorised Signatory</div>
+          </div>
+        </div>
+      </section>
+    </section>
+    <div class="generated-note">This is a Computer Generated Invoice</div>
+  </main>
+
+  {% if auto_print %}
+    <script>
+      window.addEventListener("load", () => window.setTimeout(() => window.print(), 250));
+    </script>
+  {% endif %}
+</body>
+</html>

@@ -84,6 +84,10 @@ def sale_invoice_context(sale, auto_print=False):
     grand_total = money(sale.grand_total)
     return {
         "sale": sale,
+        "document_title": "Tax Invoice",
+        "party_label": "Buyer (Bill to)",
+        "document_number_label": "Invoice No.",
+        "document_number": sale.invoice_number,
         "company_profile": company_profile,
         "buyer": buyer,
         "lines": lines,
@@ -92,6 +96,7 @@ def sale_invoice_context(sale, auto_print=False):
         "cgst_total": cgst_total,
         "sgst_total": sgst_total,
         "grand_total": grand_total,
+        "gst_total": gst_total,
         "total_quantity": total_quantity_display(sale),
         "has_gst": gst_total > Decimal("0.00"),
         "cgst_label": tax_ledger_label("CGST", gst_rate),
@@ -107,6 +112,47 @@ def sale_invoice_context(sale, auto_print=False):
         "auto_print": auto_print,
     }
 
+
+def purchase_invoice_context(purchase, auto_print=False):
+    company_profile = profile_for_company(purchase.company)
+    buyer = buyer_context(purchase.supplier)
+    lines = [purchase_line_context(line, index) for index, line in enumerate(purchase.lines, start=1)]
+    tax_summary = tax_summary_rows(purchase)
+    subtotal = money(purchase.subtotal)
+    gst_total = money(purchase.gst_total)
+    gst_rate = common_gst_rate(purchase)
+    cgst_total = money(gst_total / Decimal("2"))
+    sgst_total = money(gst_total - cgst_total)
+    grand_total = money(purchase.grand_total)
+    return {
+        "purchase": purchase,
+        "document_title": "Purchase Invoice",
+        "party_label": "Supplier (Bill from)",
+        "document_number_label": "Bill No.",
+        "document_number": purchase.bill_number,
+        "company_profile": company_profile,
+        "buyer": buyer,
+        "lines": lines,
+        "tax_summary": tax_summary,
+        "subtotal": subtotal,
+        "cgst_total": cgst_total,
+        "sgst_total": sgst_total,
+        "grand_total": grand_total,
+        "gst_total": gst_total,
+        "total_quantity": total_quantity_display(purchase),
+        "has_gst": gst_total > Decimal("0.00"),
+        "cgst_label": tax_ledger_label("CGST", gst_rate, prefix="Input"),
+        "sgst_label": tax_ledger_label("SGST", gst_rate, prefix="Input"),
+        "amount_words": amount_in_words(grand_total),
+        "tax_words": amount_in_words(gst_total),
+        "invoice_date": tally_date(purchase.bill_date),
+        "due_date": tally_date(purchase.due_date),
+        "payment_terms": payment_terms(purchase),
+        "dispatch_method": "HAND",
+        "terms_of_delivery": purchase.remarks or "EX STOCK",
+        "invoice_amount": invoice_amount,
+        "auto_print": auto_print,
+    }
 
 def profile_for_company(company):
     profile = dict(COMPANY_INVOICE_PROFILES.get((company.code or "").upper(), {}))
@@ -131,18 +177,18 @@ def profile_for_company(company):
 
 
 def buyer_context(customer):
-    state = customer.state or "Maharashtra"
+    state = getattr(customer, "state", None) or "Maharashtra"
     state_code = "27" if state.lower() == "maharashtra" else ""
     return {
         "name": customer.name,
-        "contact_person": customer.contact_person or "",
+        "contact_person": getattr(customer, "contact_person", None) or "",
         "address_lines": text_lines(customer.address),
-        "city": customer.city or "",
+        "city": getattr(customer, "city", None) or "",
         "state": state,
         "state_code": state_code,
-        "mobile": customer.mobile or "",
-        "whatsapp": customer.whatsapp or "",
-        "email": customer.email or "",
+        "mobile": getattr(customer, "mobile", None) or "",
+        "whatsapp": getattr(customer, "whatsapp", None) or "",
+        "email": getattr(customer, "email", None) or "",
         "gstin": customer.gst_number or "",
     }
 
@@ -159,6 +205,18 @@ def line_context(line, index):
         "amount": invoice_amount(line.subtotal),
     }
 
+
+def purchase_line_context(line, index):
+    unit = invoice_unit(line.item.unit)
+    return {
+        "index": index,
+        "description": line.item.name,
+        "hsn": line.item.hsn or "",
+        "quantity": f"{fmt_qty(line.quantity)} {unit}",
+        "rate": invoice_amount(line.rate),
+        "unit": unit,
+        "amount": invoice_amount(line.subtotal),
+    }
 
 def tax_summary_rows(sale):
     groups = defaultdict(lambda: {"taxable": Decimal("0.00"), "tax": Decimal("0.00")})
@@ -200,11 +258,11 @@ def common_gst_rate(sale):
     return None
 
 
-def tax_ledger_label(kind, gst_rate):
+def tax_ledger_label(kind, gst_rate, prefix="Output"):
     if gst_rate:
         half_rate = percent_text(money(gst_rate / Decimal("2")))
-        return f"Output {kind} @ {half_rate}%"
-    return f"Output {kind}"
+        return f"{prefix} {kind} @ {half_rate}%"
+    return f"{prefix} {kind}"
 
 
 def total_quantity_display(sale):
@@ -315,6 +373,24 @@ def sale_invoice_filename(sale):
     return safe.lower() or f"sale-{sale.id}"
 
 
+def export_purchase_invoice_pdf(purchase):
+    context = purchase_invoice_context(purchase)
+    buffer = BytesIO()
+    page = canvas.Canvas(buffer, pagesize=A4)
+    draw_invoice_pdf(page, context)
+    page.save()
+    buffer.seek(0)
+    return send_file(
+        buffer,
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name=f"{purchase_invoice_filename(purchase)}.pdf",
+    )
+
+def purchase_invoice_filename(purchase):
+    safe = "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in purchase.bill_number).strip("-")
+    return safe.lower() or f"purchase-{purchase.id}"
+
 def export_sale_invoice_pdf(sale):
     context = sale_invoice_context(sale)
     buffer = BytesIO()
@@ -340,7 +416,7 @@ def draw_invoice_pdf(page, context):
     page.setLineWidth(0.7)
     page.rect(left, bottom, right - left, top - bottom)
     page.setFont("Helvetica", 11)
-    page.drawCentredString(width / 2, top - 14, "Tax Invoice")
+    page.drawCentredString(width / 2, top - 14, context.get("document_title", "Tax Invoice"))
 
     y = top - 24
     top_h = 160
@@ -365,7 +441,7 @@ def draw_invoice_pdf(page, context):
     page.line(left, buyer_y, mid_x, buyer_y)
     buyer = context["buyer"]
     buyer_lines = [
-        "Buyer (Bill to)",
+        context.get("party_label", "Buyer (Bill to)"),
         buyer["name"],
         *buyer["address_lines"],
         f"GSTIN/UIN : {buyer['gstin']}" if buyer["gstin"] else "",
@@ -429,7 +505,7 @@ def draw_invoice_pdf(page, context):
 
 def draw_meta_pdf(page, mid_x, right, y, top_h, context):
     labels = [
-        ("Invoice No.", context["sale"].invoice_number),
+        (context.get("document_number_label", "Invoice No."), context.get("document_number") or context["sale"].invoice_number),
         ("Dated", context["invoice_date"]),
         ("Delivery Note", ""),
         ("Mode/Terms of Payment", context["payment_terms"]),
@@ -524,7 +600,7 @@ def draw_tax_pdf(page, left, right, top, bottom, context):
     page.drawRightString(cols[2] - 4, bottom + 6, invoice_amount(context["subtotal"]))
     page.drawRightString(cols[4] - 4, bottom + 6, invoice_amount(context["cgst_total"]))
     page.drawRightString(cols[6] - 4, bottom + 6, invoice_amount(context["sgst_total"]))
-    page.drawRightString(right - 4, bottom + 6, invoice_amount(context["sale"].gst_total))
+    page.drawRightString(right - 4, bottom + 6, invoice_amount(context["gst_total"]))
 
 
 def draw_lines(page, x, y, lines, leading):

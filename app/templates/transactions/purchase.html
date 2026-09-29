@@ -55,6 +55,7 @@
             <td>{{ row.payment_status }}</td>
             <td>{{ user_name(row.created_by_id) }}</td>
             <td class="actions">
+              <a class="table-action" href="{{ url_for('transactions.purchase_view', purchase_id=row.id) }}" target="_blank" rel="noopener">View</a>
               <a class="table-action" href="{{ url_for('transactions.purchase_export', purchase_id=row.id, fmt='pdf') }}">PDF</a>
               <a class="table-action" href="{{ url_for('transactions.purchase_export', purchase_id=row.id, fmt='xlsx') }}">XL</a>
               <a class="table-action" href="{{ url_for('transactions.purchase_print', purchase_id=row.id) }}" target="_blank" rel="noopener">Print</a>

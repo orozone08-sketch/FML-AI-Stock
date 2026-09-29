@@ -32,7 +32,7 @@ from app.services.entry_exports import (
     payment_rows,
     print_entry,
 )
-from app.services.sale_invoice import export_sale_invoice_pdf, sale_invoice_context
+from app.services.sale_invoice import export_purchase_invoice_pdf, export_sale_invoice_pdf, purchase_invoice_context, sale_invoice_context
 from app.services.sale_import import import_sales_workbook, parse_sales_workbook
 from app.services.purchase_import import import_purchase_workbook, parse_purchase_workbook
 from app.services.transactions import (
@@ -247,8 +247,20 @@ def purchase_export(purchase_id, fmt):
     if not purchase:
         abort(404)
     require_active_company_document(purchase.company_id)
+    if (fmt or "").lower() == "pdf":
+        return export_purchase_invoice_pdf(purchase)
     return export_response(purchase_rows(purchase), fmt)
 
+
+@bp.route("/purchase/<int:purchase_id>/view")
+@login_required
+@require_permission("purchase", "view")
+def purchase_view(purchase_id):
+    purchase = db.session.get(Purchase, purchase_id)
+    if not purchase:
+        abort(404)
+    require_active_company_document(purchase.company_id)
+    return render_template("transactions/purchase_invoice.html", **purchase_invoice_context(purchase, auto_print=False))
 
 @bp.route("/purchase/<int:purchase_id>/print")
 @login_required
@@ -258,8 +270,7 @@ def purchase_print(purchase_id):
     if not purchase:
         abort(404)
     require_active_company_document(purchase.company_id)
-    return print_response(purchase_rows(purchase))
-
+    return render_template("transactions/purchase_invoice.html", **purchase_invoice_context(purchase, auto_print=True))
 
 @bp.route("/sale", methods=["GET", "POST"])
 @login_required
