@@ -133,22 +133,46 @@ def customer_activity_rows(company_id, customer_id):
     return rows
 
 
-@bp.route("/payments", methods=["GET"])
-@login_required
-@require_permission("payments", "view")
-def index():
+def payment_records(payment_type=None):
     recent_payments = Payment.query
     company = active_company()
     if company:
         recent_payments = recent_payments.filter(Payment.company_id == company.id)
-    recent_payments = recent_payments.order_by(Payment.payment_date.desc(), Payment.id.desc()).all()
-    return render_template("payments/index.html", recent_payments=recent_payments, **finance_options())
+    if payment_type:
+        recent_payments = recent_payments.filter(Payment.payment_type == payment_type)
+    return recent_payments.order_by(Payment.payment_date.desc(), Payment.id.desc()).all()
 
 
-@bp.route("/payments/import", methods=["GET", "POST"])
+@bp.route("/payments", methods=["GET"])
 @login_required
 @require_permission("payments", "view")
-def payment_import():
+def index():
+    return render_template(
+        "payments/index.html", recent_payments=payment_records(),
+        payment_section="combined", **finance_options()
+    )
+
+
+@bp.route("/payments-made", methods=["GET"])
+@login_required
+@require_permission("payments", "view")
+def outgoing():
+    return render_template(
+        "payments/index.html", recent_payments=payment_records("SUPPLIER_PAYMENT"),
+        payment_section="outgoing", **finance_options()
+    )
+
+
+@bp.route("/receipts", methods=["GET"])
+@login_required
+@require_permission("payments", "view")
+def receipts():
+    return render_template(
+        "payments/index.html", recent_payments=payment_records("CUSTOMER_RECEIPT"),
+        payment_section="receipts", **finance_options()
+    )
+
+def _payment_import_page(transaction_kind=None):
     preview = None
     import_result = None
     if request.method == "POST":
@@ -157,14 +181,18 @@ def payment_import():
             upload = request.files.get("excel_file")
             if not upload or not upload.filename:
                 raise ValueError("Please choose an Excel file.")
-            preview = parse_payment_workbook(upload.stream, upload.filename)
+            preview = parse_payment_workbook(
+                upload.stream, upload.filename, transaction_kind=transaction_kind
+            )
             if request.form.get("action") == "import":
                 import_result = import_payment_workbook(
-                    preview, request.form.get("company_id"), current_user
+                    preview, request.form.get("company_id"), current_user,
+                    transaction_kind=transaction_kind,
                 )
                 db.session.commit()
+                label = "receipts" if transaction_kind == "receipt" else "payments"
                 flash(
-                    f"Imported {len(import_result['created'])} payments. "
+                    f"Imported {len(import_result['created'])} {label}. "
                     f"Skipped {len(import_result['skipped'])}.",
                     "success" if not import_result["skipped"] else "warning",
                 )
@@ -173,13 +201,42 @@ def payment_import():
         except Exception as exc:
             db.session.rollback()
             flash(str(exc), "danger")
+    import_kind = transaction_kind or "combined"
+    if import_kind == "receipt":
+        form_action = url_for("payments.receipt_import")
+    elif import_kind == "payment":
+        form_action = url_for("payments.supplier_payment_import")
+    else:
+        form_action = url_for("payments.payment_import")
     return render_template(
         "payments/import.html",
         preview=preview,
         import_result=import_result,
+        import_kind=import_kind,
+        form_action=form_action,
         **finance_options(),
     )
 
+
+@bp.route("/payments/import", methods=["GET", "POST"])
+@login_required
+@require_permission("payments", "view")
+def payment_import():
+    return _payment_import_page()
+
+
+@bp.route("/payments-made/import", methods=["GET", "POST"])
+@login_required
+@require_permission("payments", "view")
+def supplier_payment_import():
+    return _payment_import_page("payment")
+
+
+@bp.route("/receipts/import", methods=["GET", "POST"])
+@login_required
+@require_permission("payments", "view")
+def receipt_import():
+    return _payment_import_page("receipt")
 
 @bp.route("/payments/<int:payment_id>/export/<fmt>")
 @login_required

@@ -43,7 +43,8 @@
               ('transactions.sale','sale','Sale', {}, 'receipt-text'),
               ('transactions.transfer','transfer','Transfer', {}, 'arrow-left-right'),
               ('transactions.opening','opening','Opening', {}, 'folder-open'),
-              ('payments.index','payments','Payments', {}, 'credit-card'),
+              ('payments.outgoing','payments','Payments', {}, 'credit-card'),
+              ('payments.receipts','payments','Receipts', {}, 'arrow-down-left'),
               ('payments.outstanding','outstanding','Outstanding', {}, 'wallet-cards'),
               ('reports.show','stock','Stock', {'name':'current-stock'}, 'boxes'),
               ('reports.stock_list','stock','Stock List', {}, 'boxes'),
@@ -123,7 +124,7 @@
                   <a class="quick-action" href="{{ url_for('transactions.purchase') }}">Purchase</a>
                 {% endif %}
                 {% if can(current_user, 'payments', 'create') %}
-                  <a class="quick-action" href="{{ url_for('payments.index') }}">Payment</a>
+                  <a class="quick-action" href="{{ url_for('payments.outgoing') }}">Payment</a>
                 {% endif %}
               </div>
 
