@@ -14,6 +14,7 @@ from app.services.customer_profile import customer_profile
 from app.services.outstanding import grouped_party_outstanding, outstanding_summary_from_rows
 from app.services.payments import create_customer_receipt, create_supplier_payment, delete_payment, update_payment
 from app.services.payment_import import import_payment_workbook, parse_payment_workbook
+from app.services.payment_voucher import export_payment_voucher_pdf
 
 bp = Blueprint("payments", __name__, url_prefix="/finance")
 
@@ -247,6 +248,8 @@ def payment_export(payment_id, fmt):
         abort(404)
     require_active_company_document(payment.company_id)
     try:
+        if (fmt or "").lower() == "pdf":
+            return export_payment_voucher_pdf(payment)
         title, rows = payment_rows(payment)
         return export_entry(title, rows, fmt)
     except ValueError:
