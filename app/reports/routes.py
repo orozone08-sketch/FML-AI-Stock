@@ -416,6 +416,69 @@ def show(name):
     )
 
 
+@bp.route("/inter-company/<source_type>/<int:source_id>")
+@login_required
+@require_permission("inter_company", "view")
+def inter_company_detail(source_type, source_id):
+    source_type = source_type.upper()
+    companies = Company.query.filter_by(active=True).all()
+    source = None
+    counterparty = None
+    ledger_entries = []
+
+    if source_type == "SALE":
+        source = db.session.get(Sale, source_id)
+        if not source or source.is_void:
+            abort(404)
+        customer_name = source.customer.name if source.customer else ""
+        counterparty = _company_for_party(
+            source.counterparty_company,
+            source.company_id,
+            customer_name,
+            companies,
+        )
+        if not counterparty or not in_active_company_scope(
+            source.company_id, counterparty.id
+        ):
+            abort(403)
+    elif source_type == "PURCHASE":
+        source = db.session.get(Purchase, source_id)
+        if not source or source.is_void:
+            abort(404)
+        supplier_name = source.supplier.name if source.supplier else ""
+        counterparty = _company_for_party(
+            source.counterparty_company,
+            source.company_id,
+            supplier_name,
+            companies,
+        )
+        if not counterparty or not in_active_company_scope(
+            source.company_id, counterparty.id
+        ):
+            abort(403)
+    elif source_type == "TRANSFER":
+        source = db.session.get(InterCompanyTransfer, source_id)
+        if not source or source.is_void:
+            abort(404)
+        if not in_active_company_scope(source.from_company_id, source.to_company_id):
+            abort(403)
+        ledger_entries = (
+            InterCompanyLedgerEntry.query.filter_by(transfer_id=source.id)
+            .order_by(InterCompanyLedgerEntry.id)
+            .all()
+        )
+    else:
+        abort(404)
+
+    return render_template(
+        "reports/inter_company_detail.html",
+        source_type=source_type,
+        source=source,
+        counterparty=counterparty,
+        ledger_entries=ledger_entries,
+        reports=REPORT_TITLES,
+    )
+
 def stock_list_data(
     selected_company_id=None,
     selected_stock_book_id=None,
@@ -617,6 +680,24 @@ def monthly_detail_urls(name, rows):
 
 
 def report_row_actions(name, rows):
+    if name == "inter-company":
+        records = inter_company_records()
+        return [
+            [
+                {
+                    "label": "View Details",
+                    "url": url_for(
+                        "reports.inter_company_detail",
+                        source_type=records[index]["source_type"],
+                        source_id=records[index]["source_id"],
+                    ),
+                    "title": "View the complete inter-company document",
+                }
+            ]
+            if index < len(records)
+            else []
+            for index, _row in enumerate(rows)
+        ]
     if name == "purchases":
         return [
             source_document_actions("PURCHASE", purchase.id)
@@ -1367,21 +1448,135 @@ def stock_alert_rows():
     return headers, rows
 
 
+def _normalized_company_key(value):
+    return "".join(character for character in str(value or "").casefold() if character.isalnum())
+
+
 def _company_for_party(explicit_company, owner_id, party_name, companies):
-    if explicit_company and explicit_company.id != owner_id:
+    if explicit_company and explicit_company.id != owner_id and explicit_company.active:
         return explicit_company
-    key = " ".join(str(party_name or "").casefold().split())
-    if not key:
+    party_key = _normalized_company_key(party_name)
+    if not party_key:
         return None
     for company in companies:
-        if company.id == owner_id:
+        if company.id == owner_id or not company.active:
             continue
-        if key in {
-            " ".join(str(company.code or "").casefold().split()),
-            " ".join(str(company.name or "").casefold().split()),
-        }:
+        code_key = _normalized_company_key(company.code)
+        name_key = _normalized_company_key(company.name)
+        if party_key in {code_key, name_key}:
+            return company
+        if len(name_key) >= 5 and (name_key in party_key or party_key in name_key):
+            return company
+        if len(code_key) >= 3 and (
+            party_key.startswith(code_key) or party_key.endswith(code_key)
+        ):
             return company
     return None
+
+
+def inter_company_records():
+    companies = Company.query.filter_by(active=True).all()
+    records = []
+    sales = scope_query_to_active_company(
+        Sale.query.filter_by(is_void=False), Sale.company_id
+    ).order_by(Sale.invoice_date, Sale.id).all()
+    for sale in sales:
+        customer_name = sale.customer.name if sale.customer else ""
+        counterparty = _company_for_party(
+            sale.counterparty_company, sale.company_id, customer_name, companies
+        )
+        if not counterparty:
+            continue
+        for index, line in enumerate(sorted(sale.lines, key=lambda entry: entry.id)):
+            records.append(
+                {
+                    "source_type": "SALE",
+                    "source_id": sale.id,
+                    "row": [
+                        f"{sale.company.code} -> {counterparty.code}",
+                        "Sale",
+                        sale.invoice_number,
+                        sale.invoice_date,
+                        line.item.display_name,
+                        fmt_qty(line.quantity),
+                        fmt_money(line.line_total),
+                        fmt_money(sale.balance_amount if index == 0 else Decimal("0.00")),
+                        sale.payment_status,
+                    ],
+                }
+            )
+    purchases = scope_query_to_active_company(
+        Purchase.query.filter_by(is_void=False), Purchase.company_id
+    ).order_by(Purchase.bill_date, Purchase.id).all()
+    for purchase in purchases:
+        supplier_name = purchase.supplier.name if purchase.supplier else ""
+        counterparty = _company_for_party(
+            purchase.counterparty_company,
+            purchase.company_id,
+            supplier_name,
+            companies,
+        )
+        if not counterparty:
+            continue
+        for index, line in enumerate(sorted(purchase.lines, key=lambda entry: entry.id)):
+            records.append(
+                {
+                    "source_type": "PURCHASE",
+                    "source_id": purchase.id,
+                    "row": [
+                        f"{counterparty.code} -> {purchase.company.code}",
+                        "Purchase",
+                        purchase.bill_number,
+                        purchase.bill_date,
+                        line.item.display_name,
+                        fmt_qty(line.quantity),
+                        fmt_money(line.line_total),
+                        fmt_money(purchase.balance_amount if index == 0 else Decimal("0.00")),
+                        purchase.payment_status,
+                    ],
+                }
+            )
+    transfers = InterCompanyTransfer.query.filter_by(is_void=False).order_by(
+        InterCompanyTransfer.transfer_date, InterCompanyTransfer.id
+    ).all()
+    for transfer in transfers:
+        if not in_active_company_scope(transfer.from_company_id, transfer.to_company_id):
+            continue
+        ledger_entries = (
+            InterCompanyLedgerEntry.query.filter_by(transfer_id=transfer.id)
+            .order_by(InterCompanyLedgerEntry.id)
+            .all()
+        )
+        for line in sorted(transfer.lines, key=lambda entry: entry.id):
+            pending = money(
+                sum(
+                    (
+                        entry.balance_amount
+                        for entry in ledger_entries
+                        if entry.item_id == line.item_id
+                        and entry.balance_amount > 0
+                    ),
+                    Decimal("0.00"),
+                )
+            )
+            records.append(
+                {
+                    "source_type": "TRANSFER",
+                    "source_id": transfer.id,
+                    "row": [
+                        f"{transfer.from_company.code} -> {transfer.to_company.code}",
+                        "Transfer",
+                        transfer.reference_number,
+                        transfer.transfer_date,
+                        line.item.display_name,
+                        fmt_qty(line.quantity),
+                        fmt_money(line.fifo_value),
+                        fmt_money(pending),
+                        "PENDING" if pending else "RETURNED",
+                    ],
+                }
+            )
+    return records
 
 
 def inter_company_rows():
@@ -1396,86 +1591,7 @@ def inter_company_rows():
         "Payment pending",
         "Status",
     ]
-    rows = []
-    companies = Company.query.filter_by(active=True).all()
-
-    sales = scope_query_to_active_company(
-        Sale.query.filter_by(is_void=False), Sale.company_id
-    ).order_by(Sale.invoice_date, Sale.id).all()
-    for sale in sales:
-        counterparty = _company_for_party(
-            sale.counterparty_company, sale.company_id, sale.customer.name, companies
-        )
-        if not counterparty:
-            continue
-        for index, line in enumerate(sale.lines):
-            rows.append([
-                f"{sale.company.code} -> {counterparty.code}",
-                "Sale",
-                sale.invoice_number,
-                sale.invoice_date,
-                line.item.display_name,
-                fmt_qty(line.quantity),
-                fmt_money(line.line_total),
-                fmt_money(sale.balance_amount if index == 0 else Decimal("0.00")),
-                sale.payment_status,
-            ])
-
-    purchases = scope_query_to_active_company(
-        Purchase.query.filter_by(is_void=False), Purchase.company_id
-    ).order_by(Purchase.bill_date, Purchase.id).all()
-    for purchase in purchases:
-        counterparty = _company_for_party(
-            purchase.counterparty_company,
-            purchase.company_id,
-            purchase.supplier.name,
-            companies,
-        )
-        if not counterparty:
-            continue
-        for index, line in enumerate(purchase.lines):
-            rows.append([
-                f"{counterparty.code} -> {purchase.company.code}",
-                "Purchase",
-                purchase.bill_number,
-                purchase.bill_date,
-                line.item.display_name,
-                fmt_qty(line.quantity),
-                fmt_money(line.line_total),
-                fmt_money(purchase.balance_amount if index == 0 else Decimal("0.00")),
-                purchase.payment_status,
-            ])
-
-    transfers = InterCompanyTransfer.query.filter_by(is_void=False).order_by(
-        InterCompanyTransfer.transfer_date, InterCompanyTransfer.id
-    ).all()
-    for transfer in transfers:
-        if not in_active_company_scope(transfer.from_company_id, transfer.to_company_id):
-            continue
-        ledger = {
-            (entry.item_id, entry.id): entry
-            for entry in InterCompanyLedgerEntry.query.filter_by(transfer_id=transfer.id).all()
-        }
-        for line in transfer.lines:
-            pending = money(
-                sum(
-                    (entry.balance_amount for entry in ledger.values()
-                     if entry.item_id == line.item_id and entry.balance_amount > 0),
-                    Decimal("0.00"),
-                )
-            )
-            rows.append([
-                f"{transfer.from_company.code} -> {transfer.to_company.code}",
-                "Transfer",
-                transfer.reference_number,
-                transfer.transfer_date,
-                line.item.display_name,
-                fmt_qty(line.quantity),
-                fmt_money(line.fifo_value),
-                fmt_money(pending),
-                "PENDING" if pending else "RETURNED",
-            ])
-    return headers, rows
+    return headers, [record["row"] for record in inter_company_records()]
 
 def opening_summary_rows():
     headers = ["Type", "Company", "Party/Book", "Document", "Date", "Amount/Value", "Paid/Allocated", "Balance/Qty", "Status", "Created by"]

@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block page_title %}Inter-Company Details{% endblock %}
+{% block page_subtitle %}Complete source document, stock, and settlement details for this inter-company entry.{% endblock %}
+{% block content %}
+  <section class="panel">
+    <div class="panel-title">
+      <h2>
+        {% if source_type == "SALE" %}
+          Sale {{ source.invoice_number }}
+        {% elif source_type == "PURCHASE" %}
+          Purchase {{ source.bill_number }}
+        {% else %}
+          Transfer {{ source.reference_number }}
+        {% endif %}
+      </h2>
+      <span class="muted-copy">{{ source_type|title }}</span>
+    </div>
+
+    <div class="form-actions">
+      <a class="secondary-button" href="{{ url_for('reports.show', name='inter-company') }}">Back to Inter Co</a>
+      {% if source_type == "SALE" %}
+        <a class="secondary-button" href="{{ url_for('transactions.sale_view', sale_id=source.id) }}" target="_blank" rel="noopener">Open Sale</a>
+        <a class="secondary-button" href="{{ url_for('transactions.sale_export', sale_id=source.id, fmt='pdf') }}">PDF</a>
+        <a class="secondary-button" href="{{ url_for('transactions.sale_print', sale_id=source.id) }}" target="_blank" rel="noopener">Print</a>
+      {% elif source_type == "PURCHASE" %}
+        <a class="secondary-button" href="{{ url_for('transactions.purchase_view', purchase_id=source.id) }}" target="_blank" rel="noopener">Open Purchase</a>
+        <a class="secondary-button" href="{{ url_for('transactions.purchase_export', purchase_id=source.id, fmt='pdf') }}">PDF</a>
+        <a class="secondary-button" href="{{ url_for('transactions.purchase_print', purchase_id=source.id) }}" target="_blank" rel="noopener">Print</a>
+      {% else %}
+        <a class="secondary-button" href="{{ url_for('transactions.transfer_export', transfer_id=source.id, fmt='pdf') }}">PDF</a>
+        <a class="secondary-button" href="{{ url_for('transactions.transfer_print', transfer_id=source.id) }}" target="_blank" rel="noopener">Print</a>
+      {% endif %}
+    </div>
+
+    <div class="detail-grid">
+      {% if source_type == "SALE" %}
+        <div><span>Direction</span><strong>{{ source.company.code }} → {{ counterparty.code }}</strong></div>
+        <div><span>Company</span><strong>{{ source.company.code }} - {{ source.company.name }}</strong></div>
+        <div><span>Counterparty</span><strong>{{ counterparty.code }} - {{ counterparty.name }}</strong></div>
+        <div><span>Customer</span><strong>{{ source.customer.name if source.customer else "-" }}</strong></div>
+        <div><span>Stock book</span><strong>{{ source.stock_book.name }}</strong></div>
+        <div><span>Sale type</span><strong>{{ source.sale_type }}</strong></div>
+        <div><span>Invoice date</span><strong>{{ source.invoice_date }}</strong></div>
+        <div><span>Due date</span><strong>{{ source.due_date or "-" }}</strong></div>
+        <div><span>Subtotal</span><strong>{{ fmt_money(source.subtotal) }}</strong></div>
+        <div><span>GST</span><strong>{{ fmt_money(source.gst_total) }}</strong></div>
+        <div><span>Grand total</span><strong>{{ fmt_money(source.grand_total) }}</strong></div>
+        <div><span>FIFO cost</span><strong>{{ fmt_money(source.fifo_cost) }}</strong></div>
+        <div><span>Gross profit</span><strong>{{ fmt_money(source.gross_profit) }}</strong></div>
+        <div><span>Paid</span><strong>{{ fmt_money(source.paid_amount) }}</strong></div>
+        <div><span>Pending</span><strong>{{ fmt_money(source.balance_amount) }}</strong></div>
+        <div><span>Status</span><strong>{{ source.payment_status }}</strong></div>
+      {% elif source_type == "PURCHASE" %}
+        <div><span>Direction</span><strong>{{ counterparty.code }} → {{ source.company.code }}</strong></div>
+        <div><span>Company</span><strong>{{ source.company.code }} - {{ source.company.name }}</strong></div>
+        <div><span>Counterparty</span><strong>{{ counterparty.code }} - {{ counterparty.name }}</strong></div>
+        <div><span>Supplier</span><strong>{{ source.supplier.name if source.supplier else "-" }}</strong></div>
+        <div><span>Stock book</span><strong>{{ source.stock_book.name }}</strong></div>
+        <div><span>Purchase type</span><strong>{{ source.purchase_type }}</strong></div>
+        <div><span>Bill date</span><strong>{{ source.bill_date }}</strong></div>
+        <div><span>Due date</span><strong>{{ source.due_date or "-" }}</strong></div>
+        <div><span>Subtotal</span><strong>{{ fmt_money(source.subtotal) }}</strong></div>
+        <div><span>GST</span><strong>{{ fmt_money(source.gst_total) }}</strong></div>
+        <div><span>Grand total</span><strong>{{ fmt_money(source.grand_total) }}</strong></div>
+        <div><span>Paid</span><strong>{{ fmt_money(source.paid_amount) }}</strong></div>
+        <div><span>Pending</span><strong>{{ fmt_money(source.balance_amount) }}</strong></div>
+        <div><span>Status</span><strong>{{ source.payment_status }}</strong></div>
+      {% else %}
+        <div><span>Direction</span><strong>{{ source.from_company.code }} → {{ source.to_company.code }}</strong></div>
+        <div><span>From company</span><strong>{{ source.from_company.code }} - {{ source.from_company.name }}</strong></div>
+        <div><span>From stock book</span><strong>{{ source.from_stock_book.name }}</strong></div>
+        <div><span>To company</span><strong>{{ source.to_company.code }} - {{ source.to_company.name }}</strong></div>
+        <div><span>To stock book</span><strong>{{ source.to_stock_book.name }}</strong></div>
+        <div><span>Transfer date</span><strong>{{ source.transfer_date }}</strong></div>
+        <div><span>Reason</span><strong>{{ source.reason or "-" }}</strong></div>
+        <div><span>Total FIFO value</span><strong>{{ fmt_money(source.total_fifo_value) }}</strong></div>
+        <div><span>Mismatch approved</span><strong>{{ "Yes" if source.mismatch_approved else "No" }}</strong></div>
+        <div><span>Approval reason</span><strong>{{ source.approval_reason or "-" }}</strong></div>
+      {% endif %}
+      <div class="full-span"><span>Remarks</span><strong>{{ source.remarks or "-" }}</strong></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-title">
+      <h2>Line details</h2>
+      <span class="muted-copy">{{ source.lines|length }} line{{ "" if source.lines|length == 1 else "s" }}</span>
+    </div>
+    <div class="table-wrap">
+      <table class="report-data-table">
+        <thead>
+          {% if source_type == "SALE" %}
+            <tr><th>Item</th><th>Quantity</th><th>Rate</th><th>GST %</th><th>Subtotal</th><th>GST amount</th><th>Line total</th><th>FIFO cost</th><th>Gross profit</th></tr>
+          {% elif source_type == "PURCHASE" %}
+            <tr><th>Item</th><th>Quantity</th><th>Rate</th><th>GST %</th><th>Subtotal</th><th>GST amount</th><th>Line total</th></tr>
+          {% else %}
+            <tr><th>Item</th><th>Quantity</th><th>FIFO value</th></tr>
+          {% endif %}
+        </thead>
+        <tbody>
+          {% for line in source.lines %}
+            {% if source_type == "SALE" %}
+              <tr>
+                <td>{{ line.item.display_name }}</td>
+                <td>{{ fmt_qty(line.quantity) }}</td>
+                <td>{{ fmt_money(line.sale_rate) }}</td>
+                <td>{{ line.gst_percent }}%</td>
+                <td>{{ fmt_money(line.subtotal) }}</td>
+                <td>{{ fmt_money(line.gst_amount) }}</td>
+                <td>{{ fmt_money(line.line_total) }}</td>
+                <td>{{ fmt_money(line.fifo_cost) }}</td>
+                <td>{{ fmt_money(line.gross_profit) }}</td>
+              </tr>
+            {% elif source_type == "PURCHASE" %}
+              <tr>
+                <td>{{ line.item.display_name }}</td>
+                <td>{{ fmt_qty(line.quantity) }}</td>
+                <td>{{ fmt_money(line.rate) }}</td>
+                <td>{{ line.gst_percent }}%</td>
+                <td>{{ fmt_money(line.subtotal) }}</td>
+                <td>{{ fmt_money(line.gst_amount) }}</td>
+                <td>{{ fmt_money(line.line_total) }}</td>
+              </tr>
+            {% else %}
+              <tr>
+                <td>{{ line.item.display_name }}</td>
+                <td>{{ fmt_qty(line.quantity) }}</td>
+                <td>{{ fmt_money(line.fifo_value) }}</td>
+              </tr>
+            {% endif %}
+          {% else %}
+            <tr><td colspan="9" class="empty">No line details found.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  {% if source_type == "TRANSFER" %}
+    <section class="panel">
+      <div class="panel-title">
+        <h2>Inter-company settlement</h2>
+        <span class="muted-copy">{{ ledger_entries|length }} ledger entr{{ "y" if ledger_entries|length == 1 else "ies" }}</span>
+      </div>
+      <div class="table-wrap">
+        <table class="report-data-table">
+          <thead><tr><th>Owner</th><th>Using company</th><th>Item</th><th>Quantity</th><th>Amount owed</th><th>Settled</th><th>Pending</th><th>Due date</th><th>Status</th></tr></thead>
+          <tbody>
+            {% for entry in ledger_entries %}
+              <tr>
+                <td>{{ entry.owner_company.code }}</td>
+                <td>{{ entry.user_company.code }}</td>
+                <td>{{ entry.item.display_name if entry.item else "-" }}</td>
+                <td>{{ fmt_qty(entry.quantity) }}</td>
+                <td>{{ fmt_money(entry.amount_owed) }}</td>
+                <td>{{ fmt_money(entry.settled_amount) }}</td>
+                <td>{{ fmt_money(entry.balance_amount) }}</td>
+                <td>{{ entry.due_date or "-" }}</td>
+                <td>{{ entry.status }}</td>
+              </tr>
+            {% else %}
+              <tr><td colspan="9" class="empty">No settlement ledger entries found.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  {% endif %}
+{% endblock %}
