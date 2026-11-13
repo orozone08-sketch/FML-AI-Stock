@@ -23,12 +23,14 @@ def document_summary(documents):
 
 
 def party_identity(entry, party_kind):
+    counterparty_company = getattr(entry, "counterparty_company", None)
+    counterparty_company_id = getattr(entry, "counterparty_company_id", None)
     if party_kind == "customer":
-        party = entry.customer.name if entry.customer else entry.counterparty_company.name if entry.counterparty_company else ""
-        party_id = entry.customer_id or entry.counterparty_company_id
+        party = entry.customer.name if entry.customer else counterparty_company.name if counterparty_company else ""
+        party_id = entry.customer_id or counterparty_company_id
     else:
-        party = entry.supplier.name if entry.supplier else entry.counterparty_company.name if entry.counterparty_company else ""
-        party_id = entry.supplier_id or entry.counterparty_company_id
+        party = entry.supplier.name if entry.supplier else counterparty_company.name if counterparty_company else ""
+        party_id = entry.supplier_id or counterparty_company_id
     return party_id, party
 
 
@@ -45,18 +47,26 @@ def party_advance_key(payment, party_kind):
     return payment.company_id, payment.supplier_id
 
 
-def unallocated_advances_by_party(entries, party_kind):
+def unallocated_advances_by_party(entries, party_kind, advance_entries=None):
     keys = set()
     for entry in entries:
         party_id, _party = party_identity(entry, party_kind)
         if party_id:
             keys.add((entry.company_id, party_id))
-    if not keys:
+    if not keys and advance_entries is None:
         return {}
+    candidates = (
+        list(advance_entries)
+        if advance_entries is not None
+        else advance_query_for_party_kind(party_kind).all()
+    )
     advances = {}
-    for payment in advance_query_for_party_kind(party_kind).all():
+    for payment in candidates:
+        party_id, _party = party_identity(payment, party_kind)
+        if not party_id:
+            continue
         key = party_advance_key(payment, party_kind)
-        if key in keys:
+        if advance_entries is not None or key in keys:
             advances[key] = money(advances.get(key, Decimal("0.00")) + payment.unallocated_amount)
     return advances
 
@@ -101,10 +111,11 @@ def outstanding_summary_from_rows(rows, company_id, party_kind, party_id):
     }
 
 
-def grouped_party_outstanding(entries, party_kind):
+def grouped_party_outstanding(entries, party_kind, advance_entries=None):
     groups = {}
     entries = list(entries)
-    advances = unallocated_advances_by_party(entries, party_kind)
+    advance_entries = list(advance_entries) if advance_entries is not None else None
+    advances = unallocated_advances_by_party(entries, party_kind, advance_entries)
     for entry in entries:
         party_id, party = party_identity(entry, party_kind)
         key = (entry.company_id, party_kind, party_id, party)
@@ -133,14 +144,45 @@ def grouped_party_outstanding(entries, party_kind):
         group["balance"] = money(group["balance"] + entry.balance_amount)
         group["created_by_ids"].add(entry.created_by_id)
 
+    # Keep advance-only customers/suppliers visible until their credit is used.
+    for payment in advance_entries or []:
+        party_id, party = party_identity(payment, party_kind)
+        if not party_id:
+            continue
+        key = (payment.company_id, party_kind, party_id, party)
+        groups.setdefault(
+            key,
+            {
+                "company_id": payment.company_id,
+                "company": payment.company.code,
+                "party_id": party_id,
+                "party": party,
+                "documents": [],
+                "date": payment.payment_date,
+                "due_date": None,
+                "total": Decimal("0.00"),
+                "paid": Decimal("0.00"),
+                "balance": Decimal("0.00"),
+                "created_by_ids": {payment.created_by_id},
+            },
+        )
+
     rows = []
     for group in groups.values():
         advance_amount = advances.get((group["company_id"], group["party_id"]), Decimal("0.00"))
         net_group_with_advances(group, advance_amount)
-        if money(group["balance"]) <= Decimal("0.00"):
+        if money(group["balance"]) <= Decimal("0.00") and money(group["open_advance"]) <= Decimal("0.00"):
             continue
-        group["documents_label"] = document_summary(group["documents"])
-        group["status"] = outstanding_status(group["paid"], group["balance"])
+        group["documents_label"] = (
+            "Advance only"
+            if not group["documents"] and group["open_advance"] > Decimal("0.00")
+            else document_summary(group["documents"])
+        )
+        group["status"] = (
+            "ADVANCE"
+            if group["open_advance"] > Decimal("0.00") and group["balance"] <= Decimal("0.00")
+            else outstanding_status(group["paid"], group["balance"])
+        )
         rows.append(group)
     return sorted(
         rows,

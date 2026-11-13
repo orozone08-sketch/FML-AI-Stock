@@ -1328,9 +1328,12 @@ def format_grouped_outstanding_rows(
     include_documents=True,
     include_dates=True,
     include_status=True,
+    advance_entries=None,
 ):
     rows = []
-    for group in grouped_party_outstanding(entries, party_kind):
+    for group in grouped_party_outstanding(
+        entries, party_kind, advance_entries=advance_entries
+    ):
         advance_credit = money(group.get("advance_offset", Decimal("0.00")) + group.get("open_advance", Decimal("0.00")))
         row = [
             group["company"],
@@ -1359,12 +1362,20 @@ def customer_outstanding_rows():
         Receivable.company_id,
     )
     entries = query.order_by(Receivable.due_date, Receivable.document_number).all()
+    advances = scope_query_to_active_company(
+        Payment.query.filter(
+            Payment.unallocated_amount > 0,
+            Payment.customer_id.isnot(None),
+        ),
+        Payment.company_id,
+    ).all()
     return headers, format_grouped_outstanding_rows(
         entries,
         "customer",
         include_documents=False,
         include_dates=False,
         include_status=False,
+        advance_entries=advances,
     )
 
 
@@ -1375,7 +1386,18 @@ def supplier_outstanding_rows():
         Payable.company_id,
     )
     entries = query.order_by(Payable.due_date, Payable.document_number).all()
-    return headers, format_grouped_outstanding_rows(entries, "supplier")
+    advances = scope_query_to_active_company(
+        Payment.query.filter(
+            Payment.unallocated_amount > 0,
+            Payment.supplier_id.isnot(None),
+        ),
+        Payment.company_id,
+    ).all()
+    return headers, format_grouped_outstanding_rows(
+        entries,
+        "supplier",
+        advance_entries=advances,
+    )
 
 
 def advances_rows():

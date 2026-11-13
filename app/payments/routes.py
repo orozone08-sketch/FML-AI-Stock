@@ -404,10 +404,6 @@ def outstanding():
                 insensitive_like(Supplier.name, search),
             )
         )
-    receivable_entries = receivables.order_by(Receivable.due_date, Receivable.document_date).all()
-    payable_entries = payables.order_by(Payable.due_date, Payable.document_date).all()
-    receivables = grouped_party_outstanding(receivable_entries, "customer")
-    payables = grouped_party_outstanding(payable_entries, "supplier")
     advances = Payment.query.filter(Payment.unallocated_amount > 0)
     companies = Company.query.filter_by(active=True)
     if company:
@@ -428,6 +424,14 @@ def outstanding():
             )
         )
     advances = advances.order_by(Payment.payment_date.desc()).all()
+    receivable_entries = receivables.order_by(Receivable.due_date, Receivable.document_date).all()
+    payable_entries = payables.order_by(Payable.due_date, Payable.document_date).all()
+    receivables = grouped_party_outstanding(
+        receivable_entries, "customer", advance_entries=advances
+    )
+    payables = grouped_party_outstanding(
+        payable_entries, "supplier", advance_entries=advances
+    )
     summary = {
         "receivable_balance": money(sum((row["balance"] for row in receivables), 0)),
         "payable_balance": money(sum((row["balance"] for row in payables), 0)),
