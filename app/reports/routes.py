@@ -1,8 +1,21 @@
 from datetime import date, timedelta
 from decimal import Decimal
+from collections import defaultdict
 
-from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
+from flask import (
+    Blueprint,
+    abort,
+    flash,
+    g,
+    has_request_context,
+    redirect,
+    render_template,
+    request,
+    url_for,
+)
 from flask_login import current_user, login_required
+from sqlalchemy import and_, case, func
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.core.company_context import active_company
 from app.core.formatting import fmt_money, fmt_qty, money, qty
@@ -25,6 +38,7 @@ from app.models import (
     SaleLine,
     StockBook,
     StockLedgerEntry,
+    TransferLine,
     User,
 )
 from app.reports.exporting import export_table
@@ -90,8 +104,17 @@ def in_active_company_scope(*company_ids):
 def creator_name(user_id):
     if not user_id:
         return "System"
+    if has_request_context():
+        cache = getattr(g, "report_creator_names", None)
+        if cache is None:
+            cache = g.report_creator_names = {}
+        if user_id in cache:
+            return cache[user_id]
     user = db.session.get(User, int(user_id))
-    return user.name if user else "Unknown user"
+    name = user.name if user else "Unknown user"
+    if has_request_context():
+        cache[user_id] = name
+    return name
 
 
 def parse_money_cell(value):
@@ -516,26 +539,62 @@ def stock_list_data(
         for book in books
         for item in items
     }
-    entry_query = StockLedgerEntry.query
+    entry_query = scope_query_to_active_company(StockLedgerEntry.query, StockLedgerEntry.company_id)
     if selected_company_id:
         entry_query = entry_query.filter(StockLedgerEntry.company_id == selected_company_id)
     if selected_stock_book_id:
         entry_query = entry_query.filter(StockLedgerEntry.stock_book_id == selected_stock_book_id)
-    for entry in entry_query.order_by(StockLedgerEntry.entry_date, StockLedgerEntry.id).all():
-        key = (entry.company_id, entry.stock_book_id, entry.item_id)
-        aggregate = by_book_item.get(key)
+    if period_end:
+        entry_query = entry_query.filter(StockLedgerEntry.entry_date < period_end)
+
+    received_quantity = (
+        StockLedgerEntry.quantity_in
+        if not period_start
+        else case(
+            (StockLedgerEntry.entry_date >= period_start, StockLedgerEntry.quantity_in),
+            else_=0,
+        )
+    )
+    sold_condition = (StockLedgerEntry.transaction_type == "SALE",)
+    if period_start:
+        sold_condition = (
+            StockLedgerEntry.entry_date >= period_start,
+            StockLedgerEntry.transaction_type == "SALE",
+        )
+    sold_quantity = case(
+        (and_(*sold_condition), StockLedgerEntry.quantity_out),
+        else_=0,
+    )
+    for company_id, stock_book_id, item_id, received, sold, pending, fifo_value in entry_query.with_entities(
+        StockLedgerEntry.company_id,
+        StockLedgerEntry.stock_book_id,
+        StockLedgerEntry.item_id,
+        func.coalesce(func.sum(received_quantity), 0),
+        func.coalesce(func.sum(sold_quantity), 0),
+        func.coalesce(
+            func.sum(StockLedgerEntry.quantity_in - StockLedgerEntry.quantity_out), 0
+        ),
+        func.coalesce(
+            func.sum(
+                case(
+                    (StockLedgerEntry.movement_type == "IN", StockLedgerEntry.value),
+                    else_=-StockLedgerEntry.value,
+                )
+            ),
+            0,
+        ),
+    ).group_by(
+        StockLedgerEntry.company_id,
+        StockLedgerEntry.stock_book_id,
+        StockLedgerEntry.item_id,
+    ).all():
+        aggregate = by_book_item.get((company_id, stock_book_id, item_id))
         if not aggregate:
             continue
-        if period_end and entry.entry_date >= period_end:
-            continue
-        inward = qty(entry.quantity_in)
-        outward = qty(entry.quantity_out)
-        aggregate["pending"] += inward - outward
-        aggregate["fifo_value"] += money(entry.value if entry.movement_type == "IN" else -entry.value)
-        if not period_start or entry.entry_date >= period_start:
-            aggregate["received"] += inward
-            if entry.transaction_type == "SALE":
-                aggregate["sold"] += outward
+        aggregate["received"] = qty(received)
+        aggregate["sold"] = qty(sold)
+        aggregate["pending"] = qty(pending)
+        aggregate["fifo_value"] = money(fifo_value)
 
     book_lookup = {(book.company_id, book.id): book for book in books}
     item_lookup = {item.id: item for item in items}
@@ -681,7 +740,7 @@ def monthly_detail_urls(name, rows):
 
 def report_row_actions(name, rows):
     if name == "inter-company":
-        records = inter_company_records()
+        records = inter_company_records_for_request()
         return [
             [
                 {
@@ -987,12 +1046,37 @@ def current_stock_rows(period_end=None):
     ledger_query = scope_query_to_active_company(StockLedgerEntry.query, StockLedgerEntry.company_id)
     if period_end:
         ledger_query = ledger_query.filter(StockLedgerEntry.entry_date < period_end)
-    ledger_totals = {}
-    for entry in ledger_query.order_by(StockLedgerEntry.entry_date, StockLedgerEntry.id).all():
-        key = (entry.company_id, entry.stock_book_id, entry.item_id)
-        total = ledger_totals.setdefault(key, {"quantity": Decimal("0.000"), "value": Decimal("0.00")})
-        total["quantity"] += qty(entry.quantity_in) - qty(entry.quantity_out)
-        total["value"] += money(entry.value if entry.movement_type == "IN" else -entry.value)
+    quantity_total = func.coalesce(
+        func.sum(StockLedgerEntry.quantity_in - StockLedgerEntry.quantity_out), 0
+    )
+    value_total = func.coalesce(
+        func.sum(
+            case(
+                (StockLedgerEntry.movement_type == "IN", StockLedgerEntry.value),
+                else_=-StockLedgerEntry.value,
+            )
+        ),
+        0,
+    )
+    ledger_totals = {
+        (company_id, stock_book_id, item_id): {
+            "quantity": qty(quantity),
+            "value": money(value),
+        }
+        for company_id, stock_book_id, item_id, quantity, value in ledger_query.with_entities(
+            StockLedgerEntry.company_id,
+            StockLedgerEntry.stock_book_id,
+            StockLedgerEntry.item_id,
+            quantity_total,
+            value_total,
+        )
+        .group_by(
+            StockLedgerEntry.company_id,
+            StockLedgerEntry.stock_book_id,
+            StockLedgerEntry.item_id,
+        )
+        .all()
+    }
     for book in books:
         for item in items:
             total = ledger_totals.get((book.company_id, book.id, item.id), {})
@@ -1060,7 +1144,14 @@ def stock_ledger_rows():
 
 
 def purchase_report_query():
-    query = scope_query_to_active_company(Purchase.query.filter_by(is_void=False), Purchase.company_id)
+    query = scope_query_to_active_company(
+        Purchase.query.filter_by(is_void=False).options(
+            joinedload(Purchase.company),
+            joinedload(Purchase.stock_book),
+            joinedload(Purchase.supplier),
+        ),
+        Purchase.company_id,
+    )
     selected_company_id = selected_report_company_id()
     if selected_company_id:
         query = query.filter(Purchase.company_id == selected_company_id)
@@ -1086,7 +1177,14 @@ def sale_report_query():
 
 def sale_report_lines_query():
     query = scope_query_to_active_company(
-        SaleLine.query.join(Sale).filter(Sale.is_void.is_(False)),
+        SaleLine.query.join(Sale)
+        .options(
+            joinedload(SaleLine.item),
+            joinedload(SaleLine.sale).joinedload(Sale.company),
+            joinedload(SaleLine.sale).joinedload(Sale.stock_book),
+            joinedload(SaleLine.sale).joinedload(Sale.customer),
+        )
+        .filter(Sale.is_void.is_(False)),
         Sale.company_id,
     )
     selected_company_id = selected_report_company_id()
@@ -1123,44 +1221,38 @@ def purchase_rows():
     return headers, rows
 
 
+def report_month_expression(column):
+    """Build a portable SQL month key for MySQL production and SQLite tests."""
+    if db.session.bind and db.session.bind.dialect.name == "mysql":
+        return func.date_format(column, "%Y-%m")
+    return func.strftime("%Y-%m", column)
+
+
 def purchase_monthly_rows():
     headers = ["Month", "Company", "Bills", "Subtotal", "GST", "Grand total", "Paid", "Balance"]
-    groups = {}
-    query = scope_query_to_active_company(Purchase.query.filter_by(is_void=False), Purchase.company_id)
-    for purchase in query.all():
-        key = (purchase.bill_date.strftime("%Y-%m"), purchase.company.code)
-        group = groups.setdefault(
-            key,
-            {
-                "month": key[0],
-                "company": key[1],
-                "bills": 0,
-                "subtotal": Decimal("0.00"),
-                "gst": Decimal("0.00"),
-                "grand": Decimal("0.00"),
-                "paid": Decimal("0.00"),
-                "balance": Decimal("0.00"),
-            },
-        )
-        group["bills"] += 1
-        group["subtotal"] = money(group["subtotal"] + purchase.subtotal)
-        group["gst"] = money(group["gst"] + purchase.gst_total)
-        group["grand"] = money(group["grand"] + purchase.grand_total)
-        group["paid"] = money(group["paid"] + purchase.paid_amount)
-        group["balance"] = money(group["balance"] + purchase.balance_amount)
+    month = report_month_expression(Purchase.bill_date)
+    query = db.session.query(
+        month.label("month"),
+        Company.code,
+        func.count(Purchase.id),
+        func.coalesce(func.sum(Purchase.subtotal), 0),
+        func.coalesce(func.sum(Purchase.gst_total), 0),
+        func.coalesce(func.sum(Purchase.grand_total), 0),
+        func.coalesce(func.sum(Purchase.paid_amount), 0),
+        func.coalesce(func.sum(Purchase.balance_amount), 0),
+    ).join(Company, Purchase.company_id == Company.id).filter(Purchase.is_void.is_(False))
+    query = scope_query_to_active_company(query, Purchase.company_id)
     rows = []
-    for group in sorted(
-        groups.values(), key=lambda item: (item["month"], item["company"]), reverse=True
-    ):
+    for row in query.group_by(month, Company.code).order_by(month.desc(), Company.code):
         rows.append([
-            group["month"],
-            group["company"],
-            group["bills"],
-            fmt_money(group["subtotal"]),
-            fmt_money(group["gst"]),
-            fmt_money(group["grand"]),
-            fmt_money(group["paid"]),
-            fmt_money(group["balance"]),
+            row[0],
+            row[1],
+            row[2],
+            fmt_money(row[3]),
+            fmt_money(row[4]),
+            fmt_money(row[5]),
+            fmt_money(row[6]),
+            fmt_money(row[7]),
         ])
     return headers, rows
 
@@ -1234,45 +1326,31 @@ def sales_monthly_rows():
         "Gross profit",
         "Balance",
     ]
-    groups = {}
-    query = scope_query_to_active_company(Sale.query.filter_by(is_void=False), Sale.company_id)
-    for sale in query.all():
-        key = (sale.invoice_date.strftime("%Y-%m"), sale.company.code)
-        group = groups.setdefault(
-            key,
-            {
-                "month": key[0],
-                "company": key[1],
-                "invoices": 0,
-                "subtotal": Decimal("0.00"),
-                "gst": Decimal("0.00"),
-                "grand": Decimal("0.00"),
-                "fifo": Decimal("0.00"),
-                "profit": Decimal("0.00"),
-                "balance": Decimal("0.00"),
-            },
-        )
-        group["invoices"] += 1
-        group["subtotal"] = money(group["subtotal"] + sale.subtotal)
-        group["gst"] = money(group["gst"] + sale.gst_total)
-        group["grand"] = money(group["grand"] + sale.grand_total)
-        group["fifo"] = money(group["fifo"] + sale.fifo_cost)
-        group["profit"] = money(group["profit"] + sale.gross_profit)
-        group["balance"] = money(group["balance"] + sale.balance_amount)
+    month = report_month_expression(Sale.invoice_date)
+    query = db.session.query(
+        month.label("month"),
+        Company.code,
+        func.count(Sale.id),
+        func.coalesce(func.sum(Sale.subtotal), 0),
+        func.coalesce(func.sum(Sale.gst_total), 0),
+        func.coalesce(func.sum(Sale.grand_total), 0),
+        func.coalesce(func.sum(Sale.fifo_cost), 0),
+        func.coalesce(func.sum(Sale.gross_profit), 0),
+        func.coalesce(func.sum(Sale.balance_amount), 0),
+    ).join(Company, Sale.company_id == Company.id).filter(Sale.is_void.is_(False))
+    query = scope_query_to_active_company(query, Sale.company_id)
     rows = []
-    for group in sorted(
-        groups.values(), key=lambda item: (item["month"], item["company"]), reverse=True
-    ):
+    for row in query.group_by(month, Company.code).order_by(month.desc(), Company.code):
         rows.append([
-            group["month"],
-            group["company"],
-            group["invoices"],
-            fmt_money(group["subtotal"]),
-            fmt_money(group["gst"]),
-            fmt_money(group["grand"]),
-            fmt_money(group["fifo"]),
-            fmt_money(group["profit"]),
-            fmt_money(group["balance"]),
+            row[0],
+            row[1],
+            row[2],
+            fmt_money(row[3]),
+            fmt_money(row[4]),
+            fmt_money(row[5]),
+            fmt_money(row[6]),
+            fmt_money(row[7]),
+            fmt_money(row[8]),
         ])
     return headers, rows
 
@@ -1500,7 +1578,14 @@ def inter_company_records():
     companies = Company.query.filter_by(active=True).all()
     records = []
     sales = scope_query_to_active_company(
-        Sale.query.filter_by(is_void=False), Sale.company_id
+        Sale.query.filter_by(is_void=False).options(
+            joinedload(Sale.company),
+            joinedload(Sale.customer),
+            joinedload(Sale.counterparty_company),
+            joinedload(Sale.stock_book),
+            selectinload(Sale.lines).joinedload(SaleLine.item),
+        ),
+        Sale.company_id,
     ).order_by(Sale.invoice_date, Sale.id).all()
     for sale in sales:
         customer_name = sale.customer.name if sale.customer else ""
@@ -1528,7 +1613,14 @@ def inter_company_records():
                 }
             )
     purchases = scope_query_to_active_company(
-        Purchase.query.filter_by(is_void=False), Purchase.company_id
+        Purchase.query.filter_by(is_void=False).options(
+            joinedload(Purchase.company),
+            joinedload(Purchase.supplier),
+            joinedload(Purchase.counterparty_company),
+            joinedload(Purchase.stock_book),
+            selectinload(Purchase.lines).joinedload(PurchaseLine.item),
+        ),
+        Purchase.company_id,
     ).order_by(Purchase.bill_date, Purchase.id).all()
     for purchase in purchases:
         supplier_name = purchase.supplier.name if purchase.supplier else ""
@@ -1558,17 +1650,41 @@ def inter_company_records():
                     ],
                 }
             )
-    transfers = InterCompanyTransfer.query.filter_by(is_void=False).order_by(
+    transfers_query = InterCompanyTransfer.query.filter_by(is_void=False).options(
+        joinedload(InterCompanyTransfer.from_company),
+        joinedload(InterCompanyTransfer.to_company),
+        joinedload(InterCompanyTransfer.from_stock_book),
+        joinedload(InterCompanyTransfer.to_stock_book),
+        selectinload(InterCompanyTransfer.lines).joinedload(TransferLine.item),
+    )
+    report_company_id = active_report_company_id()
+    if report_company_id:
+        transfers_query = transfers_query.filter(
+            db.or_(
+                InterCompanyTransfer.from_company_id == report_company_id,
+                InterCompanyTransfer.to_company_id == report_company_id,
+            )
+        )
+    transfers = transfers_query.order_by(
         InterCompanyTransfer.transfer_date, InterCompanyTransfer.id
     ).all()
+    transfer_ids = [transfer.id for transfer in transfers]
+    ledger_by_transfer = defaultdict(list)
+    if transfer_ids:
+        ledger_entries = (
+            InterCompanyLedgerEntry.query.filter(
+                InterCompanyLedgerEntry.transfer_id.in_(transfer_ids)
+            )
+            .options(joinedload(InterCompanyLedgerEntry.item))
+            .order_by(InterCompanyLedgerEntry.transfer_id, InterCompanyLedgerEntry.id)
+            .all()
+        )
+        for entry in ledger_entries:
+            ledger_by_transfer[entry.transfer_id].append(entry)
     for transfer in transfers:
         if not in_active_company_scope(transfer.from_company_id, transfer.to_company_id):
             continue
-        ledger_entries = (
-            InterCompanyLedgerEntry.query.filter_by(transfer_id=transfer.id)
-            .order_by(InterCompanyLedgerEntry.id)
-            .all()
-        )
+        ledger_entries = ledger_by_transfer[transfer.id]
         for line in sorted(transfer.lines, key=lambda entry: entry.id):
             pending = money(
                 sum(
@@ -1601,6 +1717,16 @@ def inter_company_records():
     return records
 
 
+def inter_company_records_for_request():
+    """Reuse the report dataset while rendering rows and action links."""
+    if not has_request_context():
+        return inter_company_records()
+    records = getattr(g, "inter_company_records", None)
+    if records is None:
+        records = g.inter_company_records = inter_company_records()
+    return records
+
+
 def inter_company_rows():
     headers = [
         "Direction",
@@ -1613,7 +1739,7 @@ def inter_company_rows():
         "Payment pending",
         "Status",
     ]
-    return headers, [record["row"] for record in inter_company_records()]
+    return headers, [record["row"] for record in inter_company_records_for_request()]
 
 def opening_summary_rows():
     headers = ["Type", "Company", "Party/Book", "Document", "Date", "Amount/Value", "Paid/Allocated", "Balance/Qty", "Status", "Created by"]
